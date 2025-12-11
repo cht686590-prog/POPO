@@ -3,1210 +3,1357 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WBC 賽事預測平台</title>
-    
+    <title>普普的風雲端點餐系統</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Babel for JSX transformation -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-    <!-- Import Map for React, Firebase, and Icons -->
-    <script type="importmap">
-    {
-        "imports": {
-            "react": "https://esm.sh/react@18.2.0",
-            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-            "firebase/app": "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js",
-            "firebase/auth": "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js",
-            "firebase/firestore": "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js",
-            "lucide-react": "https://esm.sh/lucide-react@0.378.0?external=react"
-        }
-    }
-    </script>
-
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        /* Custom scrollbar for webkit */
-        ::-webkit-scrollbar {
-            width: 8px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #1f2937; 
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #4b5563; 
-            border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #6b7280; 
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
+        
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #fffbf2; }
+        
+        /* Custom Scrollbar */
+        .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+        .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+        .scrollbar-thin::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
+        .scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: #94a3b8; }
+        
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Animations */
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+        .animate-fade-in-up { animation: fadeInUp 0.4s ease-out; }
     </style>
 </head>
-<body class="bg-gray-900 text-white min-h-screen">
-    <div id="root"></div>
+<body class="selection:bg-amber-200 pb-20">
 
-    <script type="text/babel" data-type="module">
-        import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-        import { createRoot } from 'react-dom/client';
-        // 加入 getApps 以防止重複初始化錯誤
-        import { initializeApp, getApps } from 'firebase/app';
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, signOut } from 'firebase/auth';
-        import { 
-            getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, updateDoc,
-            writeBatch
-        } from 'firebase/firestore';
-        
-        import { 
-            Copy, Trophy, Users, Gift, Star, ArrowRight, Smartphone, Lock, User, 
-            MessageSquare, Mail, Key, X, Calendar, Clock, Settings, CheckCircle, 
-            Award, Info, LogOut, Zap, HelpCircle, MapPin, MousePointer, Edit2, Save
-        } from 'lucide-react';
+    <div id="app"></div>
 
-        // --- Configuration Section ---
-        
-        // 為了讓此 HTML 檔案能獨立運作，請在此填入您的 Firebase 設定
-        // 如果您沒有設定，網頁會以「展示模式」運行（無法真正讀寫資料庫）
-        const manualConfig = {
-            apiKey: "",
-            authDomain: "",
-            projectId: "",
-            storageBucket: "",
-            messagingSenderId: "",
-            appId: ""
+    <!-- Toast Container -->
+    <div id="toast-container" class="fixed top-4 left-1/2 transform -translate-x-1/2 z-[9999] flex flex-col items-center space-y-2 pointer-events-none w-full max-w-sm px-4"></div>
+
+    <script type="module">
+        // --- Firebase Imports ---
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
+        import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js';
+
+        // --- Configuration ---
+        const apiKey = ""; // API Key 會由環境提供，若在本地運行需填入
+        // 這裡模擬環境變數，實際使用時請替換為真實設定
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: apiKey, authDomain: "test.firebaseapp.com", projectId: "test" }; 
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+
+        // --- Data ---
+        const BEVERAGES_DATA = [
+            { id: 'coffee_1', name: '美式咖啡', price: 110, type: 'coffee', temp: 'both' },
+            { id: 'coffee_2', name: '原味拿鐵', price: 130, type: 'coffee', temp: 'both' },
+            { id: 'coffee_3', name: '焦糖拿鐵', price: 150, type: 'coffee', temp: 'both' },
+            { id: 'coffee_4', name: '卡布奇諾', price: 150, type: 'coffee', temp: 'both' },
+            { id: 'tea_1', name: '特選錫蘭紅茶', price: 100, type: 'tea', temp: 'both' },
+            { id: 'tea_2', name: '阿薩姆紅茶', price: 100, type: 'tea', temp: 'both' },
+            { id: 'tea_3', name: '香檸柚茶', price: 100, type: 'tea', temp: 'both' },
+            { id: 'tea_4', name: '鐵觀音', price: 110, type: 'tea', temp: 'both' },
+            { id: 'tea_5', name: '伯爵紅茶', price: 120, type: 'tea', temp: 'both' },
+            { id: 'tea_6', name: '洋甘菊茶', price: 150, type: 'tea', temp: 'hotOnly' },
+            { id: 'milktea_1', name: '特選錫蘭奶茶', price: 120, type: 'milkTea', temp: 'both' },
+            { id: 'milktea_2', name: '阿薩姆奶茶', price: 120, type: 'milkTea', temp: 'both' },
+            { id: 'milktea_3', name: '鐵觀音奶茶', price: 130, type: 'milkTea', temp: 'both' },
+            { id: 'milktea_4', name: '伯爵奶茶', price: 140, type: 'milkTea', temp: 'both' },
+            { id: 'milktea_5', name: '日式玄米奶茶', price: 150, type: 'milkTea', temp: 'both' },
+            { id: 'milktea_6', name: '阿華田可可', price: 150, type: 'milkTea', temp: 'both' },
+            { id: 'milktea_7', name: 'OREO 奶茶', price: 150, type: 'milkTea', temp: 'iceOnly' },
+            { id: 'juice_1', name: '精力蔬果汁', price: 160, type: 'juice', temp: 'iceOnly' },
+            { id: 'juice_2', name: '富士山蘋果牛奶', price: 130, type: 'juice', temp: 'iceOnly' },
+            { id: 'juice_3', name: '蜂蜜檸檬', price: 130, type: 'juice', temp: 'iceOnly' },
+            { id: 'juice_4', name: '芭樂番茄梅', price: 150, type: 'juice', temp: 'iceOnly' },
+            { id: 'juice_5', name: '香蕉牛奶', price: 130, type: 'juice', temp: 'iceOnly' },
+            { id: 'juice_6', name: '葡萄優格飲', price: 140, type: 'juice', temp: 'iceOnly' },
+            { id: 'smoothie_1', name: '芒果冰沙', price: 140, type: 'smoothie', temp: 'iceOnly' },
+            { id: 'smoothie_2', name: '檸檬優格冰沙', price: 140, type: 'smoothie', temp: 'iceOnly' }
+            { id: 'smoothie_3', name: '巧克力可可冰沙', price: 150, type: 'smoothie', temp: 'iceOnly' },
+            { id: 'smoothie_4', name: 'OREO 餅乾奶昔', price: 160, type: 'smoothie', temp: 'iceOnly' },
+        ];
+
+        const BASIC_SIDE_DRINKS = [
+            { id: 'sd1', name: '香檸柚茶', price: 0, temp: 'both' },
+            { id: 'sd2', name: '附餐紅茶', price: 0, temp: 'both' },
+            { id: 'sd3', name: '附餐黑咖啡', price: 0, temp: 'both' },
+        ];
+
+        const CATEGORIES = [
+            { id: 'hotpot', name: '幸福鍋物', icon: 'soup' },
+            { id: 'setmeal', name: '幸福二次方', icon: 'utensils' },
+            { id: 'pasta', name: '義大利麵/焗烤', icon: 'utensils' },
+            { id: 'riceball', name: '普普飯糰餐', icon: 'utensils' },
+            { id: 'lightmeal', name: '輕食/沙拉', icon: 'cake-slice' },
+            { id: 'snacks', name: '炸物點心', icon: 'ice-cream' },
+            { id: 'alacarte', name: '單點加料', icon: 'plus' },
+            { id: 'beverage', name: '飲品單點', icon: 'coffee' },
+        ];
+
+        const PRODUCTS_DATA = [
+            { id: 'hp1', categoryId: 'hotpot', name: '日式昆布鍋', price: 330, description: '可全素', modifierRules: { type: 'hotpot', meat: true, spiciness: false, starch: true, drinkType: 'typeB' } },
+            { id: 'hp2', categoryId: 'hotpot', name: '韓式泡菜鍋', price: 330, description: '微辣開胃', modifierRules: { type: 'hotpot', meat: true, spiciness: false, starch: true, drinkType: 'typeB' } },
+            { id: 'hp3', categoryId: 'hotpot', name: '田園南瓜鍋', price: 340, description: '可全素，濃郁湯頭', modifierRules: { type: 'hotpot', meat: true, spiciness: false, starch: true, drinkType: 'typeB' } },
+            { id: 'hp4', categoryId: 'hotpot', name: '辛香麻辣鍋', price: 330, description: '大辣/中辣/小辣', modifierRules: { type: 'hotpot', meat: true, spiciness: true, starch: true, drinkType: 'typeB' } },
+            { id: 'hp5', categoryId: 'hotpot', name: '風味牛奶鍋', price: 360, description: '香濃奶香', modifierRules: { type: 'hotpot', meat: true, spiciness: false, starch: true, drinkType: 'typeB' } },
+            { id: 'hp6', categoryId: 'hotpot', name: '義式番茄鍋', price: 340, description: '酸甜滋味', modifierRules: { type: 'hotpot', meat: true, spiciness: false, starch: true, drinkType: 'typeB' } },
+            { id: 'sm1', categoryId: 'setmeal', name: '蜜汁碳烤豬肋排', price: 490, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'sm2', categoryId: 'setmeal', name: '香煎厚鮭魚', price: 460, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'sm3', categoryId: 'setmeal', name: '秘製紹興醉雞', price: 420, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'sm4', categoryId: 'setmeal', name: '破布子鱈魚', price: 430, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'sm5', categoryId: 'setmeal', name: '照燒松阪豬', price: 420, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'sm6', categoryId: 'setmeal', name: '德式鄉村豬腳', price: 430, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'sm7', categoryId: 'setmeal', name: '法式迷迭香雞腿', price: 370, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'sm8', categoryId: 'setmeal', name: '泰式檸檬魚', price: 400, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'sm9', categoryId: 'setmeal', name: '蔥爆野菇牛肉', price: 410, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'sm10', categoryId: 'setmeal', name: '雲南椒麻雞', price: 380, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'sm11', categoryId: 'setmeal', name: '如意蔬食(全素)', price: 360, description: '含小湯鍋', modifierRules: { type: 'setMeal', potType: true, starch: true, drinkType: 'typeB' } },
+            { id: 'pa1', categoryId: 'pasta', name: '煙燻鴨胸義大利麵', price: 350, description: '醬汁二選一、麵條二選一', modifierRules: { type: 'pasta', sauce: true, noodle: true, drinkType: 'typeB' } },
+            { id: 'pa2', categoryId: 'pasta', name: '迷迭雞腿義大利麵', price: 340, description: '醬汁二選一、麵條二選一', modifierRules: { type: 'pasta', sauce: true, noodle: true, drinkType: 'typeB' } },
+            { id: 'pa3', categoryId: 'pasta', name: '厚切豬排義大利麵', price: 330, description: '醬汁二選一、麵條二選一', modifierRules: { type: 'pasta', sauce: true, noodle: true, drinkType: 'typeB' } },
+            { id: 'pa4', categoryId: 'pasta', name: '香草蛤蠣義大利麵', price: 320, description: '醬汁二選一、麵條二選一', modifierRules: { type: 'pasta', sauce: true, noodle: true, drinkType: 'typeB' } },
+            { id: 'pa5', categoryId: 'pasta', name: '嫩煎牛肉義大利麵', price: 350, description: '醬汁二選一、麵條二選一', modifierRules: { type: 'pasta', sauce: true, noodle: true, drinkType: 'typeB' } },
+            { id: 'pa6', categoryId: 'pasta', name: '素食鮮果義大利麵', price: 320, description: '五辛素', modifierRules: { type: 'pasta', sauce: true, noodle: true, drinkType: 'typeB' } },
+            { id: 'gr1', categoryId: 'pasta', name: '匈牙利牛肉焗烤飯', price: 360, description: '附飲品', modifierRules: { type: 'pasta', drinkType: 'typeB' } },
+            { id: 'gr2', categoryId: 'pasta', name: '咖哩雞排焗烤飯', price: 340, description: '附飲品', modifierRules: { type: 'pasta', drinkType: 'typeB' } },
+            { id: 'gr3', categoryId: 'pasta', name: '咖哩豬排焗烤飯', price: 330, description: '附飲品', modifierRules: { type: 'pasta', drinkType: 'typeB' } },
+            { id: 'gr4', categoryId: 'pasta', name: '蔬食咖哩焗烤飯', price: 320, description: '五辛素', modifierRules: { type: 'pasta', drinkType: 'typeB' } },
+            { id: 'rb1', categoryId: 'riceball', name: '豬肋排飯糰餐', price: 330, description: '特製蜜汁照燒醬', modifierRules: { type: 'simpleMeal', drinkType: 'typeA' } },
+            { id: 'rb2', categoryId: 'riceball', name: '迷迭雞腿飯糰餐', price: 280, description: '迷迭香氣軟嫩雞腿', modifierRules: { type: 'simpleMeal', drinkType: 'typeA' } },
+            { id: 'rb3', categoryId: 'riceball', name: '鹽烤鯖魚飯糰餐', price: 280, description: '檸檬椒鹽搭配', modifierRules: { type: 'simpleMeal', drinkType: 'typeA' } },
+            { id: 'lm1', categoryId: 'lightmeal', name: '照燒牛肉輕食', price: 280, description: '輕食總匯', modifierRules: { type: 'simpleMeal', drinkType: 'typeA' } },
+            { id: 'lm2', categoryId: 'lightmeal', name: '黃金豬排輕食', price: 260, description: '輕食總匯', modifierRules: { type: 'simpleMeal', drinkType: 'typeA' } },
+            { id: 'lm3', categoryId: 'lightmeal', name: '煙燻雞肉輕食', price: 260, description: '輕食總匯', modifierRules: { type: 'simpleMeal', drinkType: 'typeA' } },
+            { id: 'sa1', categoryId: 'lightmeal', name: '櫻桃鴨胸沙拉', price: 240, description: '輕食沙拉', modifierRules: { type: 'simpleMeal', drinkType: 'typeA' } },
+            { id: 'sa2', categoryId: 'lightmeal', name: '季節水果沙拉', price: 220, description: '輕食沙拉', modifierRules: { type: 'simpleMeal', drinkType: 'typeA' } },
+            { id: 'sa3', categoryId: 'lightmeal', name: '煙燻雞肉沙拉', price: 230, description: '輕食沙拉', modifierRules: { type: 'simpleMeal', drinkType: 'typeA' } },
+            { id: 'sn1', categoryId: 'snacks', name: '金黃脆薯', price: 100, description: '', modifierRules: {} },
+            { id: 'sn2', categoryId: 'snacks', name: '酥炸雞米花', price: 100, description: '', modifierRules: {} },
+            { id: 'sn3', categoryId: 'snacks', name: '美味烤雞翅', price: 160, description: '', modifierRules: {} },
+            { id: 'sn4', categoryId: 'snacks', name: '招牌甜不辣', price: 100, description: '', modifierRules: {} },
+            { id: 'sn5', categoryId: 'snacks', name: '美式洋蔥圈', price: 100, description: '', modifierRules: {} },
+            { id: 'sn6', categoryId: 'snacks', name: '黑心麻吉球', price: 100, description: '', modifierRules: {} },
+            { id: 'sn7', categoryId: 'snacks', name: '普普綜合拼盤', price: 200, description: '脆薯、雞米花、甜不辣、雞翅、洋蔥圈', modifierRules: {} },
+            { id: 'ds1', categoryId: 'snacks', name: '冰心布朗尼', price: 80, description: '甜點', modifierRules: {} },
+            { id: 'ds2', categoryId: 'snacks', name: '季節水果鬆餅', price: 240, description: '甜點', modifierRules: {} },
+            { id: 'ds3', categoryId: 'snacks', name: '冰淇淋鬆餅', price: 240, description: '甜點', modifierRules: {} },
+            { id: 'al1', categoryId: 'alacarte', name: '原味湯底', price: 40, description: '', modifierRules: {} },
+            { id: 'al2', categoryId: 'alacarte', name: '火鍋料', price: 60, description: '', modifierRules: {} },
+            { id: 'al3', categoryId: 'alacarte', name: '綜合蔬菜', price: 100, description: '', modifierRules: {} },
+            { id: 'al4', categoryId: 'alacarte', name: '綜合海鮮', price: 120, description: '', modifierRules: {} },
+            { id: 'al5', categoryId: 'alacarte', name: '豬肉盤', price: 100, description: '', modifierRules: {} },
+            { id: 'al6', categoryId: 'alacarte', name: '牛肉盤', price: 120, description: '', modifierRules: {} },
+            { id: 'al7', categoryId: 'alacarte', name: '綜合菇', price: 80, description: '', modifierRules: {} },
+            { id: 'al8', categoryId: 'alacarte', name: '玉米筍/南瓜', price: 60, description: '', modifierRules: {} },
+        ];
+
+        const MODIFIER_OPTIONS = {
+            meat: [
+                { id: 'm_pork', name: '豬肉', priceDelta: 0 },
+                { id: 'm_beef', name: '牛肉', priceDelta: 30 },
+                { id: 'm_surf_pork', name: '海陸豬', priceDelta: 60 },
+                { id: 'm_surf_beef', name: '海陸牛', priceDelta: 70 },
+            ],
+            spiciness: [
+                { id: 's_little', name: '小辣', priceDelta: 0 },
+                { id: 's_medium', name: '中辣', priceDelta: 0 },
+                { id: 's_big', name: '大辣', priceDelta: 0 },
+            ],
+            starch: [
+                { id: 'st_rice', name: '白飯', priceDelta: 0 },
+                { id: 'st_grain', name: '五穀飯', priceDelta: 0 },
+                { id: 'st_glass', name: '冬粉', priceDelta: 0 },
+            ],
+            sauce: [
+                { id: 'sa_green', name: '青醬', priceDelta: 0 },
+                { id: 'sa_red', name: '紅醬', priceDelta: 0 },
+            ],
+            noodle: [
+                { id: 'n_thin', name: '細麵', priceDelta: 0 },
+                { id: 'n_wide', name: '寬麵', priceDelta: 0 },
+            ],
+            potType: [
+                { id: 'pt_fish', name: '鮮魚鍋', priceDelta: 0 },
+                { id: 'pt_veg', name: '蔬菜鍋', priceDelta: 0 },
+            ]
         };
 
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-wbc-app';
-        // 優先使用環境變數，若無則使用手動設定
-        const firebaseConfig = typeof __firebase_config !== 'undefined' 
-            ? JSON.parse(__firebase_config) 
-            : manualConfig;
+        // --- State ---
+        const state = {
+            user: null,
+            cart: JSON.parse(localStorage.getItem('popo_cart')) || [],
+            customerName: localStorage.getItem('popo_name') || "",
+            selectedCategory: 'hotpot',
+            isCartOpen: false,
+            isAdminView: false,
+            isAdminLoggedIn: false,
+            orders: [], // raw orders
+            loading: false,
+            
+            // Modal States
+            modalProduct: null, // If set, show ItemModal
+            adminEditingOrder: null, // ID of merged order being edited (user name)
+            adminEditingItem: null, // Full item object for AdminItemModal
+            isAddingItem: false,
+        };
 
-        const withBackoff = async (fn, retries = 3, delay = 1000) => {
-            try {
-                return await fn();
-            } catch (error) {
-                if (retries > 0) {
-                    console.warn(`Retry attempt (${3 - retries + 1}):`, error.message);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                    return withBackoff(fn, retries - 1, delay * 2);
-                }
-                throw error;
+        // --- Utils ---
+        const addToast = (message, type = 'info') => {
+            const container = document.getElementById('toast-container');
+            const el = document.createElement('div');
+            el.className = `pointer-events-auto flex items-center px-4 py-3 rounded-xl shadow-xl border-2 transition-all animate-fade-in-up w-full ${
+                type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 
+                type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-white border-gray-200 text-gray-800'
+            }`;
+            
+            let icon = '';
+            if (type === 'error') icon = `<i data-lucide="alert-circle" class="mr-3 text-red-500"></i>`;
+            else if (type === 'success') icon = `<i data-lucide="check" class="mr-3 text-green-500"></i>`;
+            else icon = `<i data-lucide="info" class="mr-3 text-blue-500"></i>`;
+
+            el.innerHTML = `
+                ${icon}
+                <span class="font-bold">${message}</span>
+            `;
+            container.appendChild(el);
+            lucide.createIcons();
+
+            setTimeout(() => {
+                el.style.opacity = '0';
+                setTimeout(() => el.remove(), 300);
+            }, 3000);
+        };
+
+        const render = () => {
+            const appDiv = document.getElementById('app');
+            appDiv.innerHTML = ''; // Clear
+
+            // Navbar
+            appDiv.appendChild(createNavbar());
+
+            // Main Content
+            if (state.isAdminView && state.isAdminLoggedIn) {
+                appDiv.appendChild(createAdminDashboard());
+            } else {
+                appDiv.appendChild(createUserView());
             }
+
+            // Global Modals
+            if (state.modalProduct) {
+                appDiv.appendChild(createItemModal(state.modalProduct));
+            }
+            if (state.adminEditingItem) {
+                appDiv.appendChild(createAdminItemModal(state.adminEditingItem));
+            }
+            
+            // Login Modal handled locally in createNavbar logic usually, but here state-driven
+            if (state.showLoginModal) {
+                appDiv.appendChild(createLoginModal());
+            }
+
+            // Cart
+            if (state.isCartOpen) {
+                appDiv.appendChild(createCartSidebar());
+            }
+
+            lucide.createIcons();
         };
 
-        // --- Firebase Context and State Management ---
+        // --- Component Creators ---
 
-        const useFirebase = () => {
-            const [db, setDb] = useState(null);
-            const [auth, setAuth] = useState(null);
-            const [firebaseUser, setFirebaseUser] = useState(null); 
-            const [isFirebaseReady, setIsFirebaseReady] = useState(false);
+        function createNavbar() {
+            const nav = document.createElement('nav');
+            nav.className = "bg-amber-500 text-white p-4 shadow-md sticky top-0 z-40 flex justify-between items-center h-18 border-b-4 border-amber-600";
+            
+            const logoDiv = document.createElement('div');
+            logoDiv.className = "flex items-center space-x-3 cursor-pointer";
+            logoDiv.onclick = () => { state.isAdminView = false; render(); };
+            logoDiv.innerHTML = `
+                <div class="bg-white text-amber-600 p-2 rounded-xl font-bold text-2xl border-2 border-amber-100 shadow-sm flex items-center justify-center w-12 h-12">P</div>
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-black tracking-wider hidden sm:block">普普的風複合式餐飲</h1>
+                    <h1 class="text-xl font-black tracking-wider sm:hidden">Popo Cafe</h1>
+                </div>
+            `;
 
-            useEffect(() => {
-                // Check if config is valid (has apiKey)
-                if (!firebaseConfig || !firebaseConfig.apiKey) {
-                    console.warn("Firebase configuration is missing or empty. Running in Demo Mode (UI only).");
-                    // Simulate ready for UI purposes
-                    setIsFirebaseReady(true);
-                    return;
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = "flex items-center space-x-3";
+
+            // Switch Button
+            const switchBtn = document.createElement('button');
+            switchBtn.className = `flex items-center px-3 py-2 rounded-lg transition-all text-sm font-bold ${state.isAdminView ? 'bg-white text-amber-600 shadow-inner' : 'bg-amber-600 text-amber-100 hover:bg-amber-700'}`;
+            switchBtn.innerHTML = state.isAdminView 
+                ? `<i data-lucide="utensils" class="mr-1" width="18"></i> 回點餐`
+                : `<i data-lucide="chef-hat" class="mr-1" width="18"></i> 後台管理`;
+            switchBtn.onclick = () => {
+                if (state.isAdminView) {
+                    state.isAdminView = false;
+                } else if (state.isAdminLoggedIn) {
+                    state.isAdminView = true;
+                } else {
+                    state.showLoginModal = true;
                 }
+                render();
+            };
+            actionsDiv.appendChild(switchBtn);
 
-                try {
-                    // 使用 getApps() 檢查是否已經初始化，避免重複初始化錯誤
-                    const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
-                    const firestoreDb = getFirestore(app);
-                    const firebaseAuth = getAuth(app);
-                    
-                    setDb(firestoreDb);
-                    setAuth(firebaseAuth);
+            // Logout (Admin only)
+            if (state.isAdminView && state.isAdminLoggedIn) {
+                const logoutBtn = document.createElement('button');
+                logoutBtn.className = "bg-red-500/80 hover:bg-red-600 text-white p-2 rounded-lg font-bold text-xs flex items-center";
+                logoutBtn.innerHTML = `<i data-lucide="log-out" width="16"></i>`;
+                logoutBtn.onclick = () => {
+                    state.isAdminLoggedIn = false;
+                    state.isAdminView = false;
+                    render();
+                };
+                actionsDiv.appendChild(logoutBtn);
+            }
 
-                    const unsubscribe = onAuthStateChanged(firebaseAuth, async (currentUser) => {
-                        setFirebaseUser(currentUser);
-                        setIsFirebaseReady(true);
-                    });
+            // Cart Button (User only)
+            if (!state.isAdminView) {
+                const cartBtn = document.createElement('button');
+                cartBtn.className = "relative p-3 bg-white/20 rounded-full hover:bg-white/30 transition border border-white/40";
+                cartBtn.onclick = () => { state.isCartOpen = true; render(); };
+                
+                let badge = '';
+                if (state.cart.length > 0) {
+                    badge = `<span class="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center animate-bounce shadow-sm border border-white">${state.cart.length}</span>`;
+                }
+                cartBtn.innerHTML = `<i data-lucide="shopping-cart" width="26"></i>${badge}`;
+                actionsDiv.appendChild(cartBtn);
+            }
 
-                    const initializeAuth = async () => {
-                        if (!firebaseAuth.currentUser) {
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await signInWithCustomToken(firebaseAuth, __initial_auth_token);
-                            } else {
-                                await signInAnonymously(firebaseAuth);
-                            }
-                        }
+            nav.appendChild(logoDiv);
+            nav.appendChild(actionsDiv);
+            return nav;
+        }
+
+        function createLoginModal() {
+            const overlay = document.createElement('div');
+            overlay.className = "fixed inset-0 bg-black/60 z-[70] flex items-center justify-center backdrop-blur-sm px-4";
+            
+            const box = document.createElement('div');
+            box.className = "bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm border-2 border-amber-100";
+            
+            box.innerHTML = `
+                <div class="flex flex-col items-center mb-6">
+                    <div class="bg-amber-100 p-4 rounded-full mb-3"><i data-lucide="lock" class="text-amber-600" width="32"></i></div>
+                    <h3 class="text-2xl font-black text-gray-800">管理員登入</h3>
+                    <p class="text-gray-500 text-sm">請輸入後台管理密碼</p>
+                </div>
+                <form id="login-form">
+                    <input type="password" id="login-pass" placeholder="請輸入密碼" class="w-full p-4 rounded-xl border-2 border-gray-200 focus:border-amber-400 font-bold text-center text-xl outline-none mb-4 transition-colors" autoFocus>
+                    <button type="submit" class="w-full bg-amber-500 text-white font-bold py-3 rounded-xl hover:bg-amber-600 transition shadow-lg shadow-amber-200">登入</button>
+                    <button type="button" id="login-cancel" class="w-full mt-3 text-gray-400 font-bold text-sm hover:text-gray-600">取消</button>
+                </form>
+            `;
+
+            const form = box.querySelector('#login-form');
+            form.onsubmit = (e) => {
+                e.preventDefault();
+                const pass = box.querySelector('#login-pass').value;
+                if (pass === '0000') {
+                    state.isAdminLoggedIn = true;
+                    state.isAdminView = true;
+                    state.showLoginModal = false;
+                    addToast('管理員登入成功', 'success');
+                    render();
+                } else {
+                    addToast('密碼錯誤，請重試', 'error');
+                    box.querySelector('#login-pass').value = '';
+                    box.querySelector('#login-pass').classList.add('border-red-400', 'bg-red-50');
+                }
+            };
+            box.querySelector('#login-cancel').onclick = () => {
+                state.showLoginModal = false;
+                render();
+            };
+
+            overlay.appendChild(box);
+            return overlay;
+        }
+
+        function createUserView() {
+            const container = document.createElement('div');
+            
+            // Category Nav
+            const catNav = document.createElement('div');
+            catNav.className = "sticky top-[72px] sm:top-[76px] z-40 flex overflow-x-auto py-4 bg-white space-x-3 px-4 scrollbar-hide border-b border-gray-200 shadow-sm";
+            CATEGORIES.forEach(cat => {
+                const btn = document.createElement('button');
+                btn.className = `flex items-center flex-shrink-0 px-5 py-2.5 rounded-full font-bold text-base transition-all duration-200 border-2 ${
+                    state.selectedCategory === cat.id
+                    ? 'bg-amber-500 text-white shadow-md border-amber-500 scale-105'
+                    : 'bg-white text-gray-600 hover:bg-orange-50 hover:border-orange-200 border-transparent'
+                }`;
+                btn.innerHTML = `<i data-lucide="${cat.icon}" class="mr-2" width="18"></i>${cat.name}`;
+                btn.onclick = () => { state.selectedCategory = cat.id; render(); };
+                catNav.appendChild(btn);
+            });
+            container.appendChild(catNav);
+
+            // Product Grid
+            const main = document.createElement('main');
+            main.className = "container mx-auto p-4 sm:p-6 max-w-7xl";
+            const grid = document.createElement('div');
+            grid.className = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6 animate-fade-in-up";
+
+            const displayList = state.selectedCategory === 'beverage' 
+                ? BEVERAGES_DATA 
+                : PRODUCTS_DATA.filter(p => p.categoryId === state.selectedCategory);
+
+            displayList.forEach(prod => {
+                const card = document.createElement('div');
+                card.className = "bg-white rounded-2xl shadow-sm overflow-hidden cursor-pointer hover:shadow-xl hover:border-amber-300 transition-all duration-300 border border-gray-100 group flex flex-col justify-between h-full p-5";
+                card.onclick = () => {
+                    // Normalize product for modal
+                    state.modalProduct = { ...prod, categoryId: state.selectedCategory === 'beverage' ? 'beverage' : prod.categoryId };
+                    render();
+                };
+
+                let tags = '';
+                if(prod.modifierRules?.drinkType) {
+                    const isTypeB = prod.modifierRules.drinkType === 'typeB';
+                    tags = `<span class="text-[10px] px-2 py-0.5 rounded-full font-bold whitespace-nowrap ml-2 border ${isTypeB ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-orange-50 text-orange-600 border-orange-100'}">${isTypeB ? '附飲品' : '半價購'}</span>`;
+                }
+                if(prod.temp === 'iceOnly') tags = `<span class="text-[10px] bg-sky-50 text-sky-600 px-2 py-0.5 rounded font-bold border border-sky-100 ml-2">限冰飲</span>`;
+                if(prod.temp === 'hotOnly') tags = `<span class="text-[10px] bg-red-50 text-red-600 px-2 py-0.5 rounded font-bold border border-red-100 ml-2">限熱飲</span>`;
+
+                card.innerHTML = `
+                    <div>
+                        <div class="flex justify-between items-start mb-2">
+                            <h3 class="text-lg font-bold text-gray-800 leading-tight group-hover:text-amber-600 transition-colors">${prod.name}</h3>
+                            ${tags}
+                        </div>
+                        ${prod.description ? `<p class="text-sm text-gray-500 mb-4 min-h-[1.5em]">${prod.description}</p>` : ''}
+                    </div>
+                    <div class="flex justify-between items-center border-t border-gray-50 pt-3 mt-2">
+                        <span class="text-2xl font-black text-amber-600">$${prod.price}</span>
+                        <button class="bg-amber-50 text-amber-600 p-2 rounded-full hover:bg-amber-500 hover:text-white transition-all shadow-sm">
+                            <i data-lucide="plus" width="20"></i>
+                        </button>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+            main.appendChild(grid);
+            container.appendChild(main);
+
+            return container;
+        }
+
+        function createItemModal(product) {
+            const overlay = document.createElement('div');
+            overlay.className = "fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-center items-end sm:items-center p-0 sm:p-4 animate-fade-in";
+            
+            // Logic State
+            let selections = {};
+            let selectedDrink = null;
+            let drinkTemp = 'ice';
+            const rules = product.modifierRules || {};
+            const isBeverageMode = product.categoryId === 'beverage';
+
+            const modal = document.createElement('div');
+            modal.className = "bg-white w-full max-w-2xl h-[95vh] sm:h-auto sm:max-h-[90vh] rounded-t-2xl sm:rounded-3xl flex flex-col overflow-hidden shadow-2xl ring-1 ring-black/5";
+
+            // Header
+            const header = document.createElement('div');
+            header.className = "relative bg-amber-500 flex-shrink-0 p-6 flex justify-between items-center border-b border-amber-400";
+            header.innerHTML = `
+                <div class="pr-12 text-white">
+                    <h2 class="text-3xl font-black leading-tight tracking-wide">${product.name}</h2>
+                    ${!isBeverageMode && product.description ? `<p class="font-medium text-lg mt-1 opacity-90">${product.description}</p>` : ''}
+                </div>
+                <button id="close-modal" class="absolute top-4 right-4 bg-white/20 hover:bg-white/30 p-2 rounded-full text-white transition backdrop-blur-md border border-white/30">
+                    <i data-lucide="x" width="24"></i>
+                </button>
+            `;
+            
+            // Content
+            const content = document.createElement('div');
+            content.className = "p-6 overflow-y-auto flex-grow scrollbar-thin";
+
+            // Helper to render radio groups
+            const renderGroup = (key, title) => {
+                const group = document.createElement('div');
+                group.className = "mb-6";
+                group.innerHTML = `
+                    <h4 class="text-lg font-bold text-gray-800 mb-3 flex items-center">
+                        <span class="w-1.5 h-5 bg-amber-500 rounded-full mr-2"></span>${title} <span class="text-red-500 ml-1">*</span>
+                    </h4>
+                    <div class="grid grid-cols-2 gap-3" id="group-${key}"></div>
+                `;
+                const grid = group.querySelector(`#group-${key}`);
+                MODIFIER_OPTIONS[key].forEach(opt => {
+                    const btn = document.createElement('button');
+                    btn.className = `py-3 px-4 rounded-xl border-2 text-base font-bold transition-all relative overflow-hidden ${
+                        selections[key] === opt.id 
+                        ? 'bg-amber-50 text-amber-900 border-amber-500 shadow-md' 
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-amber-200 hover:bg-amber-50/50'
+                    }`;
+                    btn.innerHTML = `${opt.name} ${opt.priceDelta > 0 ? `<span class="ml-2 text-sm text-amber-600 font-extrabold">+$${opt.priceDelta}</span>` : ''}`;
+                    btn.onclick = () => {
+                        selections[key] = opt.id;
+                        updatePrice();
+                        renderContent(); // Re-render content to show selection state
                     };
-                    
-                    initializeAuth();
-                    return () => unsubscribe();
-                } catch (err) {
-                    console.error("Firebase init error:", err);
-                    setIsFirebaseReady(true); // Allow UI to render even if firebase fails
+                    grid.appendChild(btn);
+                });
+                return group;
+            };
+
+            // Helper to render drink section
+            const renderDrinkSection = () => {
+                if (!rules.drinkType) return null;
+                const div = document.createElement('div');
+                div.className = "mb-6 border-t-2 border-dashed border-gray-200 pt-6";
+                const isTypeB = rules.drinkType === 'typeB';
+                
+                div.innerHTML = `
+                    <h4 class="text-lg font-bold text-gray-800 mb-4 flex items-center justify-between">
+                        <div class="flex items-center">
+                            <span class="w-1.5 h-5 bg-amber-500 rounded-full mr-2"></span>
+                            ${isTypeB ? '附餐飲品' : '加購飲品'} 
+                            <span class="text-xs px-2 py-0.5 rounded-full ml-2 font-bold ${isTypeB ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}">${isTypeB ? '升級半價' : '享半價優惠'}</span>
+                        </div>
+                    </h4>
+                    <div id="drink-options" class="space-y-3"></div>
+                `;
+                
+                const container = div.querySelector('#drink-options');
+                
+                // Only showing Basic Drinks for simplicity in Vanilla, or simple list
+                // To keep it simple but functional, let's list basic + "More"
+                // Actually, let's list basic ones and a select for others to save space/complexity in vanilla re-render
+                
+                // Basic options
+                if (isTypeB) {
+                    BASIC_SIDE_DRINKS.forEach(d => {
+                        const row = document.createElement('div');
+                        const isSelected = selectedDrink?.id === d.id && !selectedDrink.isUpgrade;
+                        row.className = `flex items-center justify-between p-3 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? 'bg-amber-50 border-amber-500 shadow-md' : 'bg-white border-gray-200 hover:border-amber-200'}`;
+                        row.onclick = () => {
+                            selectedDrink = { ...d, isUpgrade: false };
+                            updatePrice();
+                            renderContent();
+                        };
+                        row.innerHTML = `<span class="text-base font-bold text-gray-700">${d.name}</span>`;
+                        
+                        if (isSelected && d.temp === 'both') {
+                            const toggles = document.createElement('div');
+                            toggles.className = "flex bg-gray-100 rounded-lg p-1";
+                            toggles.onclick = (e) => e.stopPropagation();
+                            toggles.innerHTML = `
+                                <button class="px-3 py-1 text-sm rounded-md font-bold ${drinkTemp === 'ice' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400'}">冰</button>
+                                <button class="px-3 py-1 text-sm rounded-md font-bold ${drinkTemp === 'hot' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-400'}">熱</button>
+                            `;
+                            toggles.children[0].onclick = () => { drinkTemp = 'ice'; renderContent(); };
+                            toggles.children[1].onclick = () => { drinkTemp = 'hot'; renderContent(); };
+                            row.appendChild(toggles);
+                        }
+                        container.appendChild(row);
+                    });
                 }
-            }, []);
 
-            const getUserId = useCallback(() => {
-                return firebaseUser ? firebaseUser.uid : null;
-            }, [firebaseUser]);
+                // "More" Dropdown for upgrade
+                const selectDiv = document.createElement('div');
+                selectDiv.className = "mt-3";
+                selectDiv.innerHTML = `
+                    <select class="w-full p-3 bg-white border border-gray-300 rounded-xl font-bold text-gray-700 outline-none focus:border-amber-500">
+                        <option value="" disabled ${!selectedDrink?.isUpgrade ? 'selected' : ''}>選擇其他飲品 (半價)</option>
+                        ${BEVERAGES_DATA.map(b => `<option value="${b.id}" ${selectedDrink?.id === b.id && selectedDrink.isUpgrade ? 'selected' : ''}>${b.name} (+$${b.price/2})</option>`).join('')}
+                    </select>
+                `;
+                const select = selectDiv.querySelector('select');
+                select.onchange = (e) => {
+                    const b = BEVERAGES_DATA.find(x => x.id === e.target.value);
+                    selectedDrink = { ...b, isUpgrade: true };
+                    // Reset temp if not allowed
+                    if (b.temp === 'iceOnly') drinkTemp = 'ice';
+                    if (b.temp === 'hotOnly') drinkTemp = 'hot';
+                    updatePrice();
+                    renderContent();
+                };
+                container.appendChild(selectDiv);
 
-            const handleSignOut = useCallback(async () => {
-                if (auth) {
-                    try {
-                        await signOut(auth);
-                        console.log("User signed out successfully.");
-                    } catch (error) {
-                        console.error("Sign out failed:", error);
+                // Temp toggle for upgrade drink
+                if (selectedDrink?.isUpgrade && selectedDrink.temp === 'both') {
+                    const tempDiv = document.createElement('div');
+                    tempDiv.className = "flex space-x-2 mt-2 justify-end";
+                    tempDiv.innerHTML = `
+                        <button class="px-4 py-2 rounded-lg border font-bold ${drinkTemp === 'ice' ? 'bg-sky-500 text-white border-sky-600' : 'bg-white text-gray-500'}">冰</button>
+                        <button class="px-4 py-2 rounded-lg border font-bold ${drinkTemp === 'hot' ? 'bg-red-500 text-white border-red-600' : 'bg-white text-gray-500'}">熱</button>
+                    `;
+                    tempDiv.children[0].onclick = () => { drinkTemp = 'ice'; renderContent(); };
+                    tempDiv.children[1].onclick = () => { drinkTemp = 'hot'; renderContent(); };
+                    container.appendChild(tempDiv);
+                }
+
+                return div;
+            }
+
+            const renderContent = () => {
+                content.innerHTML = ''; // Re-render body
+                
+                // Temp selector for pure beverages
+                if (isBeverageMode && product.temp === 'both') {
+                    const tempSec = document.createElement('div');
+                    tempSec.className = "mb-8";
+                    tempSec.innerHTML = `
+                        <h4 class="text-lg font-bold text-gray-800 mb-4">溫度選擇</h4>
+                        <div class="flex space-x-4">
+                            <button class="flex-1 py-3 rounded-xl border-2 text-lg font-bold transition-all ${drinkTemp === 'ice' ? 'border-sky-400 bg-sky-50 text-sky-600 shadow-md' : 'border-gray-200 bg-white text-gray-400'}">冰</button>
+                            <button class="flex-1 py-3 rounded-xl border-2 text-lg font-bold transition-all ${drinkTemp === 'hot' ? 'border-red-400 bg-red-50 text-red-600 shadow-md' : 'border-gray-200 bg-white text-gray-400'}">熱</button>
+                        </div>
+                    `;
+                    tempSec.querySelectorAll('button')[0].onclick = () => { drinkTemp = 'ice'; renderContent(); };
+                    tempSec.querySelectorAll('button')[1].onclick = () => { drinkTemp = 'hot'; renderContent(); };
+                    content.appendChild(tempSec);
+                }
+
+                if (rules.meat) content.appendChild(renderGroup('meat', '肉品選擇'));
+                if (rules.spiciness) content.appendChild(renderGroup('spiciness', '辣度選擇'));
+                if (rules.potType) content.appendChild(renderGroup('potType', '湯頭選擇'));
+                if (rules.sauce) content.appendChild(renderGroup('sauce', '醬汁選擇'));
+                if (rules.noodle) content.appendChild(renderGroup('noodle', '麵條選擇'));
+                if (rules.starch) content.appendChild(renderGroup('starch', '主食選擇'));
+                if (rules.drinkType) {
+                    const ds = renderDrinkSection();
+                    if(ds) content.appendChild(ds);
+                }
+            };
+
+            // Footer
+            const footer = document.createElement('div');
+            footer.className = "p-4 sm:p-6 bg-white border-t border-gray-100 flex-shrink-0 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]";
+            
+            const updatePrice = () => {
+                let total = product.price;
+                if (!isBeverageMode) {
+                    Object.keys(selections).forEach(k => {
+                        const grp = MODIFIER_OPTIONS[k];
+                        if (grp) {
+                            const opt = grp.find(o => o.id === selections[k]);
+                            if (opt) total += opt.priceDelta;
+                        }
+                    });
+                    if (selectedDrink) {
+                        if (selectedDrink.isUpgrade || rules.drinkType === 'typeA') total += (selectedDrink.price / 2);
+                        else total += selectedDrink.price; // Usually 0
                     }
                 }
-            }, [auth]);
+                footer.querySelector('#price-display').innerText = `$${total}`;
+                return total;
+            };
 
-            return { db, auth, firebaseUser, isFirebaseReady, getUserId, handleSignOut };
-        };
-
-        // --- Form Input Field Helper ---
-        const InputField = ({ label, name, type = 'text', icon: Icon, placeholder, formData, handleChange, required = true, disabled = false, isTextArea = false }) => (
-            <div className="space-y-1">
-                <label className="text-sm font-medium text-gray-300">{label}</label>
-                <div className="relative">
-                    {Icon && <Icon className={`absolute left-3 ${isTextArea ? 'top-3' : 'top-1/2 transform -translate-y-1/2'} w-5 h-5 text-gray-500`} />}
-                    {isTextArea ? (
-                        <textarea
-                            name={name}
-                            value={formData[name] || ''}
-                            onChange={handleChange}
-                            placeholder={placeholder || `請輸入${label}`}
-                            disabled={disabled}
-                            rows="2"
-                            className={`w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500 ${Icon ? 'pl-10' : ''} ${disabled ? 'opacity-60 cursor-not-allowed' : ''} resize-none text-sm`}
-                            required={required}
-                        />
-                    ) : (
-                        <input
-                            type={type}
-                            name={name}
-                            value={formData[name] || ''}
-                            onChange={handleChange}
-                            placeholder={placeholder || `請輸入${label}`}
-                            disabled={disabled}
-                            className={`w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-blue-500 focus:border-blue-500 ${Icon ? 'pl-10' : ''} ${disabled ? 'opacity-60 cursor-not-allowed' : ''} text-sm`}
-                            required={required}
-                        />
-                    )}
+            footer.innerHTML = `
+                <div class="flex justify-between items-center mb-4">
+                    <span class="text-gray-500 font-bold text-lg">小計金額</span>
+                    <span id="price-display" class="text-4xl font-black text-amber-600">$${product.price}</span>
                 </div>
-            </div>
-        );
+                <button id="add-btn" class="w-full bg-amber-500 hover:bg-amber-600 text-white text-xl font-bold py-4 rounded-xl transition-all shadow-lg shadow-amber-200 active:scale-[0.98] flex items-center justify-center">
+                    <i data-lucide="shopping-cart" class="mr-3" width="24"></i> 加入購物車
+                </button>
+            `;
 
-        // --- Helper: Copy Function ---
-        const copyToClipboard = (text) => {
-            if (!text) return;
-            
-            const textArea = document.createElement("textarea");
-            textArea.value = text;
-            textArea.style.position = "fixed";
-            textArea.style.left = "-9999px";
-            textArea.style.top = "0";
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            
-            try {
-                const successful = document.execCommand('copy');
-                if (successful) {
-                    alert("邀請碼已複製！");
-                } else {
-                    console.error('Copy command failed.');
-                    alert("複製失敗，請手動複製。");
+            footer.querySelector('#add-btn').onclick = () => {
+                // Validation
+                if (!isBeverageMode) {
+                    if (rules.meat && !selections.meat) { addToast('您忘記選擇 [肉品] 了喔！', 'error'); return; }
+                    if (rules.spiciness && !selections.spiciness) { addToast('您忘記選擇 [辣度] 了喔！', 'error'); return; }
+                    if (rules.starch && !selections.starch) { addToast('您忘記選擇 [主食] 了喔！', 'error'); return; }
+                    if (rules.sauce && !selections.sauce) { addToast('您忘記選擇 [醬汁] 了喔！', 'error'); return; }
+                    if (rules.noodle && !selections.noodle) { addToast('您忘記選擇 [麵條] 了喔！', 'error'); return; }
+                    if (rules.potType && !selections.potType) { addToast('您忘記選擇 [鍋底] 了喔！', 'error'); return; }
+                    if (rules.drinkType === 'typeB' && !selectedDrink) { addToast('您忘記選擇 [飲品] 了喔！', 'error'); return; }
                 }
-            } catch (err) {
-                console.error('Unable to copy', err);
-                alert("複製發生錯誤。");
+
+                // Construct Details
+                let detailsStr = '';
+                if (isBeverageMode) {
+                    detailsStr = product.temp === 'both' ? (drinkTemp === 'ice' ? '(冰)' : '(熱)') : '';
+                } else {
+                    const parts = [];
+                    Object.keys(selections).forEach(k => {
+                        const opt = MODIFIER_OPTIONS[k]?.find(o => o.id === selections[k]);
+                        if (opt) parts.push(opt.name);
+                    });
+                    if (selectedDrink) {
+                        const t = selectedDrink.temp !== 'both' ? '' : (drinkTemp === 'ice' ? '(冰)' : '(熱)');
+                        const p = selectedDrink.isUpgrade || rules.drinkType === 'typeA' ? '(半價)' : '';
+                        parts.push(`${selectedDrink.name}${t} ${p}`);
+                    }
+                    detailsStr = parts.join(', ');
+                }
+
+                // Add to Cart
+                const finalPrice = updatePrice();
+                state.cart.push({
+                    cartId: Date.now(),
+                    id: product.id,
+                    productId: product.id,
+                    name: product.name,
+                    basePrice: product.price,
+                    finalPrice: finalPrice,
+                    details: detailsStr,
+                    selections: { ...selections, selectedDrink, drinkTemp }
+                });
+                
+                // Save and Close
+                localStorage.setItem('popo_cart', JSON.stringify(state.cart));
+                state.modalProduct = null;
+                state.isCartOpen = true; // Open cart after add
+                render();
+            };
+
+            // Init Render
+            renderContent();
+            modal.appendChild(header);
+            modal.appendChild(content);
+            modal.appendChild(footer);
+            
+            // Events
+            header.querySelector('#close-modal').onclick = () => { state.modalProduct = null; render(); };
+
+            overlay.appendChild(modal);
+            return overlay;
+        }
+
+        function createCartSidebar() {
+            const overlay = document.createElement('div');
+            overlay.className = "fixed inset-0 z-[60] overflow-hidden";
+            overlay.innerHTML = `
+                <div class="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" id="cart-bg"></div>
+                <div class="absolute inset-y-0 right-0 max-w-md w-full flex pointer-events-none">
+                    <div class="h-full w-full bg-white shadow-2xl flex flex-col pointer-events-auto transform transition-transform duration-300 ease-in-out border-l border-gray-200">
+                        <div class="px-6 py-5 bg-amber-50 flex justify-between items-center border-b border-amber-100">
+                            <h2 class="text-2xl font-bold flex items-center text-amber-900"><i data-lucide="shopping-cart" class="mr-3" width="24"></i> 購物清單</h2>
+                            <button id="close-cart" class="text-amber-800/60 hover:text-amber-900 bg-amber-100 p-2 rounded-full transition-colors"><i data-lucide="x" width="28"></i></button>
+                        </div>
+                        <div class="flex-1 overflow-y-auto p-4 scrollbar-thin bg-[#fffbf2]" id="cart-items"></div>
+                        <div class="p-6 bg-white border-t border-gray-200 space-y-4 shadow-[0_-5px_15px_rgba(0,0,0,0.05)]">
+                            <div class="bg-gray-50 p-3 rounded-xl border border-gray-200 flex items-center" id="name-input-div">
+                                <i data-lucide="user" class="text-gray-400 mr-3" width="20"></i>
+                                <input type="text" id="cart-name" placeholder="請輸入您的姓名 (必填)" class="bg-transparent w-full font-bold text-gray-800 outline-none placeholder-gray-400">
+                            </div>
+                            <div class="flex justify-between items-center pb-2 border-b border-gray-100">
+                                <span class="text-xl font-bold text-gray-800">總金額</span>
+                                <span class="text-4xl font-black text-amber-600" id="cart-total">$0</span>
+                            </div>
+                            <button id="submit-order" class="w-full bg-green-600 text-white hover:bg-green-700 shadow-green-200 font-bold py-4 rounded-xl text-xl transition shadow-lg flex items-center justify-center active:scale-[0.98]">
+                                <i data-lucide="check" class="mr-2" width="24"></i> 送出訂單
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Logic
+            overlay.querySelector('#cart-bg').onclick = () => { state.isCartOpen = false; render(); };
+            overlay.querySelector('#close-cart').onclick = () => { state.isCartOpen = false; render(); };
+            
+            const list = overlay.querySelector('#cart-items');
+            if (state.cart.length === 0) {
+                list.innerHTML = `
+                    <div class="h-full flex flex-col items-center justify-center text-gray-400 space-y-4">
+                        <div class="bg-amber-100 p-8 rounded-full"><i data-lucide="shopping-cart" class="text-amber-300" width="64"></i></div>
+                        <p class="font-bold text-xl text-gray-500">您的購物車是空的</p>
+                    </div>
+                `;
+            } else {
+                state.cart.forEach(item => {
+                    const row = document.createElement('div');
+                    row.className = "bg-white p-5 rounded-2xl shadow-sm mb-4 border border-gray-100 relative group hover:border-amber-200 transition-colors";
+                    row.innerHTML = `
+                        <div class="flex justify-between items-start mb-2 pr-10">
+                            <h3 class="font-bold text-lg text-gray-800">${item.name}</h3>
+                            <span class="font-black text-xl text-amber-600 whitespace-nowrap ml-2">$${item.finalPrice}</span>
+                        </div>
+                        ${item.details ? `<p class="text-sm text-gray-500 bg-gray-50 p-2 rounded-lg leading-relaxed border border-gray-100">${item.details}</p>` : ''}
+                        <button class="absolute top-4 right-4 text-gray-300 hover:text-red-500 hover:bg-red-50 p-2 rounded-full transition-colors"><i data-lucide="trash-2" width="20"></i></button>
+                    `;
+                    row.querySelector('button').onclick = () => {
+                        state.cart = state.cart.filter(c => c.cartId !== item.cartId);
+                        localStorage.setItem('popo_cart', JSON.stringify(state.cart));
+                        render();
+                    };
+                    list.appendChild(row);
+                });
             }
-            document.body.removeChild(textArea);
-        };
 
-        // --- Component: User Profile Modal ---
-        const UserProfileModal = ({ isOpen, onClose, userProfile, onUpdateProfile }) => {
-            const [isEditing, setIsEditing] = useState(false);
-            const [formData, setFormData] = useState({ ...userProfile });
-
-            const predictionPrizes = [
-                { wins: 10, prize: '7-11 100元', id: 'wins_10' },
-                { wins: 20, prize: '7-11 500元', id: 'wins_20' },
-                { wins: 30, prize: '7-11 1000元', id: 'wins_30' },
-                { wins: 40, prize: '7-11 2000元', id: 'wins_40' },
-            ];
-            const referralPrizes = [
-                { count: 10, prize: '7-11 50元', id: 'referral_10' },
-                { count: 20, prize: '7-11 100元', id: 'referral_20' },
-                { count: 30, prize: '7-11 300元', id: 'referral_30' },
-            ];
-
-            useEffect(() => {
-                if (userProfile) {
-                    setFormData({ ...userProfile });
-                }
-            }, [userProfile]);
-
-            const handleChange = (e) => {
-                const { name, value } = e.target;
-                setFormData(prev => ({ ...prev, [name]: value }));
+            // Total & Input
+            const total = state.cart.reduce((a, b) => a + b.finalPrice, 0);
+            overlay.querySelector('#cart-total').innerText = `$${total}`;
+            
+            const nameInput = overlay.querySelector('#cart-name');
+            nameInput.value = state.customerName;
+            nameInput.oninput = (e) => {
+                state.customerName = e.target.value;
+                localStorage.setItem('popo_name', e.target.value);
+                overlay.querySelector('#name-input-div').classList.remove('border-red-500', 'bg-red-50');
             };
 
-            const handleSave = (e) => {
-                e.preventDefault();
-                onUpdateProfile(formData);
-                setIsEditing(false);
-            };
+            const submitBtn = overlay.querySelector('#submit-order');
+            if (state.cart.length === 0) {
+                submitBtn.disabled = true;
+                submitBtn.className = "w-full bg-gray-200 text-gray-400 shadow-none cursor-not-allowed font-bold py-4 rounded-xl text-xl flex items-center justify-center";
+                submitBtn.innerHTML = "購物車是空的";
+            } else {
+                submitBtn.onclick = async () => {
+                    if (!state.customerName.trim()) {
+                        addToast('請輸入訂購人姓名', 'error');
+                        overlay.querySelector('#name-input-div').classList.add('border-red-500', 'bg-red-50');
+                        return;
+                    }
+                    if (!auth.currentUser) {
+                        addToast('連線初始化中，請稍後再試', 'error');
+                        return;
+                    }
 
-            const getStatusBadge = (isUnlocked, statusKey, statusMap) => {
-                const status = statusMap?.[statusKey];
-                if (status === 'SENT') {
-                    return <span className="px-2 py-0.5 rounded text-xs font-bold bg-blue-600 text-white">已寄出</span>;
-                }
-                if (isUnlocked) {
-                    return <span className="px-2 py-0.5 rounded text-xs font-bold bg-green-600 text-white">已達成</span>;
-                }
-                return <span className="px-2 py-0.5 rounded text-xs font-bold bg-gray-600 text-gray-400">未達成</span>;
-            };
+                    submitBtn.innerHTML = `<i data-lucide="refresh-cw" class="animate-spin mr-2"></i> 傳送中...`;
+                    submitBtn.disabled = true;
 
-            if (!isOpen) return null;
-
-            return (
-                <div className="fixed inset-0 bg-black/80 z-[70] flex items-center justify-center p-4">
-                    <div className="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl w-full max-w-4xl border border-gray-700 max-h-[90vh] overflow-y-auto">
-                        <div className="flex justify-between items-center border-b border-gray-700 pb-3 mb-6">
-                            <h2 className="text-xl sm:text-3xl font-extrabold text-white flex items-center">
-                                <User className="w-5 h-5 sm:w-6 sm:h-6 mr-2 text-blue-400" />
-                                會員中心
-                            </h2>
-                            <button onClick={onClose} className="text-gray-400 hover:text-white transition">
-                                <X className="w-6 h-6" />
-                            </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                            <div className="space-y-4">
-                                <div className="flex justify-between items-center mb-2">
-                                    <h3 className="text-lg font-bold text-white">個人資料</h3>
-                                    {!isEditing ? (
-                                        <button 
-                                            onClick={() => setIsEditing(true)}
-                                            className="text-sm text-blue-400 hover:text-blue-300 flex items-center"
-                                        >
-                                            <Edit2 className="w-4 h-4 mr-1" /> 修改
-                                        </button>
-                                    ) : (
-                                        <button 
-                                            onClick={handleSave}
-                                            className="text-sm text-green-400 hover:text-green-300 flex items-center"
-                                        >
-                                            <Save className="w-4 h-4 mr-1" /> 儲存
-                                        </button>
-                                    )}
-                                </div>
-                                
-                                <form className="space-y-3">
-                                    <InputField label="帳號" name="username" icon={User} formData={formData} handleChange={handleChange} disabled={true} />
-                                    <InputField label="密碼" name="password" type="password" icon={Key} formData={formData} handleChange={handleChange} disabled={!isEditing} />
-                                    <InputField label="暱稱" name="nickname" icon={User} formData={formData} handleChange={handleChange} disabled={!isEditing} />
-                                    <InputField label="電話" name="phone" type="tel" icon={Smartphone} formData={formData} handleChange={handleChange} disabled={!isEditing} />
-                                    <InputField label="信箱" name="email" type="email" icon={Mail} formData={formData} handleChange={handleChange} disabled={!isEditing} />
-                                    <InputField label="地址" name="address" icon={MapPin} formData={formData} handleChange={handleChange} disabled={!isEditing} isTextArea={true} />
-                                </form>
+                    try {
+                        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
+                            userName: state.customerName,
+                            items: state.cart,
+                            totalAmount: total,
+                            userId: auth.currentUser.uid,
+                            createdAt: Date.now()
+                        });
+                        
+                        // Success View (Simulated by replacing content)
+                        overlay.querySelector('.max-w-md > div').innerHTML = `
+                            <div class="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4 bg-green-50 animate-fade-in h-full">
+                                <div class="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mb-4"><i data-lucide="check" class="text-green-600" width="48"></i></div>
+                                <h3 class="text-3xl font-black text-green-800">訂單已送出！</h3>
+                                <p class="text-lg text-green-700 font-bold">已將訂單傳至後台</p>
+                                <p class="text-sm text-gray-500">視窗將在 3 秒後關閉</p>
                             </div>
+                        `;
+                        lucide.createIcons();
+                        
+                        state.cart = [];
+                        localStorage.removeItem('popo_cart');
+                        setTimeout(() => {
+                            state.isCartOpen = false;
+                            render();
+                        }, 3000);
 
-                            <div className="space-y-6">
-                                <div>
-                                    <h3 className="text-lg font-bold text-white mb-3 flex items-center"><Gift className="w-5 h-5 mr-2 text-yellow-400"/> 預測獎勵狀況</h3>
-                                    <div className="bg-gray-700/30 p-4 rounded-lg border border-gray-600 space-y-3">
-                                        <div className="flex justify-between items-center pb-2 border-b border-gray-600">
-                                            <span className="text-gray-300 text-sm">目前成功預測</span>
-                                            <span className="text-xl font-bold text-yellow-400">{userProfile.successfulPredictions} 局</span>
-                                        </div>
-                                        <div className="space-y-2">
-                                            {predictionPrizes.map((p, idx) => {
-                                                const isUnlocked = userProfile.successfulPredictions >= p.wins;
-                                                return (
-                                                    <div key={idx} className="flex justify-between items-center text-sm">
-                                                        <span className="text-gray-400">{p.wins} 局 ({p.prize})</span>
-                                                        {getStatusBadge(isUnlocked, p.id, userProfile.prizesStatus)}
-                                                    </div>
-                                                );
-                                            })}
-                                            <div className="flex justify-between items-center text-sm pt-1">
-                                                <span className="text-pink-400">40 局加碼 (iPhone 17)</span>
-                                                <span className={`px-2 py-0.5 rounded text-xs font-bold ${userProfile.successfulPredictions >= 40 ? 'bg-pink-600 text-white' : 'bg-gray-600 text-gray-400'}`}>
-                                                    {userProfile.successfulPredictions >= 40 ? '已具備資格' : '未達成'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                    } catch (err) {
+                        console.error(err);
+                        addToast("訂單送出失敗，請重試", 'error');
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = `<i data-lucide="check" class="mr-2"></i> 送出訂單`;
+                        lucide.createIcons();
+                    }
+                };
+            }
 
-                                <div>
-                                    <h3 className="text-lg font-bold text-white mb-3 flex items-center"><Users className="w-5 h-5 mr-2 text-green-400"/> 好友邀請獎勵狀況</h3>
-                                    <div className="bg-gray-700/30 p-4 rounded-lg border border-gray-600 space-y-3">
-                                        <div className="flex justify-between items-center pb-2 border-b border-gray-600">
-                                            <span className="text-gray-300 text-sm">已邀請人數</span>
-                                            <span className="text-xl font-bold text-green-400">{userProfile.referredUsers} 人</span>
-                                        </div>
-                                         <div className="space-y-2">
-                                            {referralPrizes.map((p, idx) => {
-                                                const isUnlocked = userProfile.referredUsers >= p.count;
-                                                return (
-                                                    <div key={idx} className="flex justify-between items-center text-sm">
-                                                        <span className="text-gray-400">{p.count} 人 ({p.prize})</span>
-                                                        {getStatusBadge(isUnlocked, p.id, userProfile.prizesStatus)}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        <div className="mt-3 pt-2 border-t border-gray-600 text-sm text-gray-400 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                                            <span>專屬邀請碼:</span>
-                                            <div className="flex items-center gap-2 w-full sm:w-auto">
-                                                <span className="font-mono text-white bg-gray-600 px-3 py-1 rounded select-all flex-1 text-center">{userProfile.referralCode}</span>
-                                                <button 
-                                                    onClick={() => copyToClipboard(userProfile.referralCode)}
-                                                    className="p-1.5 bg-blue-600 rounded hover:bg-blue-500 text-white transition"
-                                                    title="複製邀請碼"
-                                                >
-                                                    <Copy className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+            return overlay;
+        }
+
+        // --- Admin Functions ---
+
+        function createAdminDashboard() {
+            const container = document.createElement('div');
+            container.className = "container mx-auto p-4 sm:p-6 max-w-5xl animate-fade-in";
+
+            // Group Orders
+            const groups = {};
+            let totalRevenue = 0;
+            state.orders.forEach(order => {
+                const name = order.userName || 'Unknown';
+                if (!groups[name]) {
+                    groups[name] = { userName: name, totalAmount: 0, latestCreatedAt: 0, docIds: [], items: [], sourceOrders: [] };
+                }
+                const amt = Number(order.totalAmount) || 0;
+                groups[name].totalAmount += amt;
+                totalRevenue += amt;
+                if (order.createdAt > groups[name].latestCreatedAt) groups[name].latestCreatedAt = order.createdAt;
+                groups[name].docIds.push(order.id);
+                groups[name].sourceOrders.push(order);
+                if (order.items) {
+                    order.items.forEach((item, idx) => {
+                        groups[name].items.push({ ...item, _docId: order.id, _itemIdx: idx });
+                    });
+                }
+            });
+            const mergedOrders = Object.values(groups).sort((a, b) => b.latestCreatedAt - a.latestCreatedAt);
+
+            // Header
+            const header = document.createElement('div');
+            header.className = "flex flex-col md:flex-row justify-between items-center mb-6 gap-4";
+            header.innerHTML = `
+                <div class="flex items-center">
+                    <div class="bg-amber-100 p-2 rounded-lg mr-3"><i data-lucide="chef-hat" class="text-amber-600" width="28"></i></div>
+                    <div>
+                        <h2 class="text-2xl font-black text-gray-800">訂單管理系統</h2>
+                        <div class="flex items-center space-x-4">
+                            <p class="text-sm text-gray-500 font-bold">合併訂單數: ${mergedOrders.length}</p>
+                            <p class="text-xl font-black text-amber-600 flex items-center"><i data-lucide="dollar-sign" width="18" class="mr-1"></i>${totalRevenue}</p>
                         </div>
                     </div>
                 </div>
-            );
-        };
-
-        // --- Component: Registration Modal ---
-        const RegistrationModal = ({ isOpen, onClose, onFormSubmit }) => {
-            const [formData, setFormData] = useState({
-                username: '',
-                password: '',
-                nickname: '',
-                phone: '',
-                email: '',
-                address: '', 
-                referralCode: '',
-            });
-
-            const handleChange = (e) => {
-                const { name, value } = e.target;
-                setFormData(prev => ({ ...prev, [name]: value }));
+                <button id="copy-btn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold shadow-md transition flex items-center">
+                    <i data-lucide="copy" class="mr-2" width="18"></i> 匯出所有訂單
+                </button>
+            `;
+            
+            header.querySelector('#copy-btn').onclick = () => {
+                let text = "=== 總訂單匯出 (合併顯示) ===\n\n";
+                mergedOrders.forEach(o => {
+                    text += `客戶: ${o.userName}\n`;
+                    o.items.forEach(i => text += `- ${i.name} $${i.finalPrice} ${i.details ? `(${i.details})` : ''}\n`);
+                    text += `總計: $${o.totalAmount}\n----------------\n`;
+                });
+                text += `================\n總營業額: $${totalRevenue}\n`;
+                
+                const textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-9999px';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    addToast('已複製訂單', 'success');
+                } catch (err) { addToast('複製失敗', 'error'); }
+                document.body.removeChild(textArea);
             };
+            container.appendChild(header);
 
-            const handleSubmit = (e) => {
-                e.preventDefault();
-                onFormSubmit(formData);
-                onClose();
-            };
+            // Grid
+            const grid = document.createElement('div');
+            grid.className = "grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-2";
 
-            if (!isOpen) return null;
+            mergedOrders.forEach((order, idx) => {
+                const card = document.createElement('div');
+                const isEditing = state.adminEditingOrder === order.userName; // Use Name as key for grouping
+                
+                card.className = `bg-white rounded-2xl shadow-sm border-l-8 overflow-hidden transition-all duration-300 ${isEditing ? 'border-blue-500 ring-2 ring-blue-100' : 'border-amber-500 hover:shadow-md'}`;
+                
+                // Card Header
+                const cardHead = document.createElement('div');
+                cardHead.className = `p-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 ${isEditing ? 'bg-blue-50' : 'bg-gray-50'}`;
+                
+                let nameHtml = `<h3 class="font-bold text-lg text-gray-800 flex items-center">${order.userName}</h3>`;
+                if (isEditing) {
+                    nameHtml = `<input type="text" id="edit-name-${idx}" value="${order.userName}" class="border border-blue-300 rounded px-2 py-1 text-lg font-bold text-gray-800 w-40 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">`;
+                }
 
-            return (
-                <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-lg border border-gray-700 max-h-[90vh] overflow-y-auto">
-                        <div className="flex justify-between items-center border-b border-gray-700 pb-3 mb-4">
-                            <h2 className="text-2xl sm:text-3xl font-extrabold text-center text-white">會員註冊</h2>
-                            <button onClick={onClose} className="text-gray-400 hover:text-white transition">
-                                <X className="w-6 h-6" />
-                            </button>
+                cardHead.innerHTML = `
+                    <div class="flex items-center space-x-3 w-full sm:w-auto">
+                        <span class="font-black px-3 py-1 rounded-full text-sm ${isEditing ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}">#${mergedOrders.length - idx}</span>
+                        <div class="flex-grow">
+                            ${nameHtml}
+                            <p class="text-xs text-gray-500 flex items-center mt-1"><i data-lucide="bell" width="10" class="mr-1"></i> ${order.sourceOrders.length > 1 ? '多筆訂單合併' : new Date(order.latestCreatedAt).toLocaleString('zh-TW', { hour: '2-digit', minute: '2-digit' })}</p>
                         </div>
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <InputField label="帳號" name="username" icon={User} formData={formData} handleChange={handleChange} />
-                            <InputField label="密碼" name="password" type="password" icon={Key} formData={formData} handleChange={handleChange} />
-                            <InputField label="暱稱" name="nickname" icon={User} formData={formData} handleChange={handleChange} />
-                            <InputField label="電話" name="phone" type="tel" icon={Smartphone} placeholder="例如: 0912345678" formData={formData} handleChange={handleChange} />
-                            <InputField label="信箱" name="email" type="email" icon={Mail} formData={formData} handleChange={handleChange} />
-                            <InputField label="地址" name="address" icon={MapPin} formData={formData} handleChange={handleChange} isTextArea={true} />
-                            <InputField label="邀請碼 (選填)" name="referralCode" icon={CheckCircle} formData={formData} handleChange={handleChange} required={false} />
-                            
-                            <div className="mt-6 text-center">
-                                <p className="text-yellow-400 font-semibold mb-3 text-sm bg-yellow-400/10 p-2 rounded">
-                                    請加入客服LINE@，開通帳號即可預測。
-                                </p>
-                                <button
-                                    type="submit"
-                                    className="w-full py-3 text-xl font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition duration-200 shadow-lg shadow-blue-500/50 transform hover:scale-[1.01]"
-                                >
-                                    送出
-                                </button>
-                            </div>
-                        </form>
                     </div>
-                </div>
-            );
-        };
+                    <div class="flex items-center space-x-2 w-full sm:w-auto justify-end" id="actions-${idx}"></div>
+                `;
 
-        // --- Component: Login Modal ---
-        const LoginModal = ({ isOpen, onClose, onLoginSuccess }) => {
-            const [formData, setFormData] = useState({
-                username: 'ABC', 
-                password: '123',
-            });
-
-            const handleChange = (e) => {
-                const { name, value } = e.target;
-                setFormData(prev => ({ ...prev, [name]: value }));
-            };
-
-            const handleSubmit = (e) => {
-                e.preventDefault();
-                if (formData.username === 'ABC' && formData.password === '123') {
-                    onLoginSuccess();
-                    onClose();
+                // Actions
+                const actions = cardHead.querySelector(`#actions-${idx}`);
+                if (isEditing) {
+                    actions.innerHTML = `
+                        <button class="bg-green-500 hover:bg-green-600 text-white px-3 py-1.5 rounded-lg font-bold text-sm flex items-center shadow-sm" id="save-name-${idx}"><i data-lucide="check" width="16" class="mr-1"></i> 儲存姓名</button>
+                        <button class="bg-gray-400 hover:bg-gray-500 text-white px-3 py-1.5 rounded-lg font-bold text-sm flex items-center shadow-sm" id="cancel-edit-${idx}"><i data-lucide="x" width="16" class="mr-1"></i> 完成</button>
+                    `;
+                    actions.querySelector(`#save-name-${idx}`).onclick = async () => {
+                        const newName = cardHead.querySelector(`#edit-name-${idx}`).value;
+                        await Promise.all(order.docIds.map(id => updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', id), { userName: newName })));
+                        addToast('姓名已更新', 'success');
+                    };
+                    actions.querySelector(`#cancel-edit-${idx}`).onclick = () => { state.adminEditingOrder = null; render(); };
                 } else {
-                    alert("登入失敗：請使用預設帳號 ABC / 123");
+                    const editBtn = document.createElement('button');
+                    editBtn.className = "bg-blue-100 text-blue-600 hover:bg-blue-200 px-3 py-1.5 rounded-lg font-bold text-sm flex items-center transition";
+                    editBtn.innerHTML = `<i data-lucide="edit-3" width="16" class="mr-1"></i> 編輯`;
+                    editBtn.onclick = () => { state.adminEditingOrder = order.userName; render(); };
+                    
+                    const delBtn = document.createElement('button');
+                    delBtn.className = "text-gray-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition";
+                    delBtn.innerHTML = `<i data-lucide="trash-2" width="18"></i>`;
+                    let confirming = false;
+                    delBtn.onclick = async () => {
+                        if(confirming) {
+                            await Promise.all(order.docIds.map(id => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', id))));
+                            addToast('訂單已刪除', 'success');
+                        } else {
+                            confirming = true;
+                            delBtn.className = "bg-red-600 text-white p-2 rounded-lg transition shadow-inner scale-110";
+                            delBtn.innerHTML = `<span class="text-xs font-bold">確認?</span>`;
+                            setTimeout(() => {
+                                confirming = false;
+                                delBtn.className = "text-gray-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition";
+                                delBtn.innerHTML = `<i data-lucide="trash-2" width="18"></i>`;
+                                lucide.createIcons();
+                            }, 2000);
+                        }
+                    };
+
+                    actions.appendChild(editBtn);
+                    actions.appendChild(delBtn);
                 }
-            };
 
-            if (!isOpen) return null;
-
-            return (
-                <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-lg border border-gray-700">
-                        <div className="flex justify-between items-center border-b border-gray-700 pb-3 mb-4">
-                            <h2 className="text-2xl sm:text-3xl font-extrabold text-center text-white">會員登入</h2>
-                            <button onClick={onClose} className="text-gray-400 hover:text-white transition">
-                                <X className="w-6 h-6" />
-                            </button>
-                        </div>
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <InputField label="帳號" name="username" icon={User} formData={formData} handleChange={handleChange} />
-                            
-                            <div className="space-y-1">
-                                <InputField label="密碼" name="password" type="password" icon={Key} formData={formData} handleChange={handleChange} />
-                                <div className="flex justify-end pt-1">
-                                    <button 
-                                        type="button"
-                                        className="text-sm text-blue-400 hover:text-blue-300 hover:underline flex items-center transition-colors"
-                                    >
-                                        <HelpCircle className="w-3 h-3 mr-1" />
-                                        忘記密碼?
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            <div className="mt-6 text-center">
-                                <button
-                                    type="submit"
-                                    className="w-full py-3 text-xl font-bold text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition duration-200 shadow-lg shadow-blue-500/50 transform hover:scale-[1.01]"
-                                >
-                                    送出
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            );
-        };
-
-        // --- Component: Prediction Popup ---
-        const PredictionPopup = ({ match, prediction, isOpen, onClose, onPredict }) => {
-            const teamAPercent = match.ratioA || 50; 
-            const teamBPercent = 100 - teamAPercent;
-
-            const isLocked = match.officialWinner || new Date(match.date).getTime() < Date.now();
-            const userPredicted = !!prediction;
-            const { teamA, teamB } = match;
-
-            if (!isOpen) return null;
-
-            return (
-                <div className="fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
-                    <div className="bg-gray-900 p-6 rounded-xl shadow-2xl w-full max-w-lg border-2 border-blue-500">
-                        <div className="flex justify-between items-center border-b border-gray-700 pb-3 mb-4">
-                            <h2 className="text-xl sm:text-2xl font-extrabold text-white">賽事預測：{teamA} VS {teamB}</h2>
-                            <button onClick={onClose} className="text-gray-400 hover:text-white transition">
-                                <X className="w-6 h-6" />
-                            </button>
-                        </div>
-                        <div className="text-sm text-gray-400 mb-4 space-y-1">
-                            <p className="flex items-center"><Calendar className="w-4 h-4 mr-2" />
-                                {new Date(match.date).toLocaleDateString('zh-TW')}
-                            </p>
-                        </div>
-
-                        <div className="mb-6 bg-gray-800 p-4 rounded-lg">
-                            <p className="text-lg font-bold text-yellow-400 mb-3 text-center">大眾預測比例</p>
-                            <div className="flex space-x-2 items-center">
-                                <div className="flex-1 text-center">
-                                    <p className="text-sm text-white mb-1">{teamA}</p>
-                                    <div className="h-6 bg-gray-700 rounded-full overflow-hidden relative">
-                                        <div className="h-full bg-blue-500" style={{ width: `${teamAPercent}%` }}></div>
-                                        <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white shadow-black drop-shadow-md">{teamAPercent}%</span>
-                                    </div>
-                                </div>
-                                <div className="flex-1 text-center">
-                                    <p className="text-sm text-white mb-1">{teamB}</p>
-                                    <div className="h-6 bg-gray-700 rounded-full overflow-hidden relative">
-                                        <div className="h-full bg-red-500 ml-auto" style={{ width: `${teamBPercent}%` }}></div>
-                                        <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white shadow-black drop-shadow-md">{teamBPercent}%</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <p className="text-lg font-bold text-white mb-3 text-center">
-                            {userPredicted ? `您的預測：${prediction.predictedWinner}` : '請選擇您預測的獲勝隊伍'}
-                        </p>
-                        
-                        {isLocked ? (
-                            <div className="p-4 bg-red-800/50 text-red-300 rounded-lg text-center font-bold">
-                                賽事已截止或已結算。
-                            </div>
-                        ) : (
-                            <div className="flex flex-col sm:flex-row justify-between space-y-3 sm:space-y-0 sm:space-x-4">
-                                {[teamA, teamB].map((team) => (
-                                    <button
-                                        key={team}
-                                        onClick={() => { onPredict(match.id, team); onClose(); }}
-                                        className={`flex-1 p-4 text-center rounded-lg font-bold text-lg transition duration-200 shadow-md 
-                                            ${(prediction?.predictedWinner === team) 
-                                                ? 'bg-yellow-500 text-gray-900 border-4 border-yellow-300' 
-                                                : 'bg-blue-600 text-white hover:bg-blue-700'
-                                            }
-                                        `}
-                                    >
-                                        {team}
-                                    </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        };
-
-        // --- Component: Match Table Row ---
-        const MatchTableRow = ({ match, prediction, onClick, isLoggedIn }) => {
-            const isLocked = match.officialWinner || new Date(match.date).getTime() < Date.now();
-            const userPredicted = !!prediction;
-            const isCorrect = userPredicted && match.officialWinner && prediction.predictedWinner === match.officialWinner;
-            
-            const renderPredictionStatus = () => {
-                if (!isLoggedIn) return null; 
+                // Card Body
+                const cardBody = document.createElement('div');
+                cardBody.className = "p-4";
+                const ul = document.createElement('ul');
+                ul.className = "space-y-3";
                 
-                if (isCorrect) {
-                    return <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-green-500 text-white flex items-center justify-center w-fit mx-auto"><Trophy className="w-3 h-3 mr-1" />正確</span>;
-                }
-                if (userPredicted && !isLocked) {
-                    return <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-blue-500 text-white flex items-center justify-center w-fit mx-auto"><Star className="w-3 h-3 mr-1" />{prediction.predictedWinner}</span>;
-                }
-                if (isLocked && userPredicted && !isCorrect) {
-                    return <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-red-500 text-white w-fit mx-auto block">失敗</span>;
-                }
-                if (!userPredicted && !isLocked) {
-                    return <span className="text-gray-400 text-xs">未預測</span>;
-                }
-                return <span className="text-gray-500 text-sm">-</span>;
-            };
-
-            return (
-                <tr className={`border-b border-gray-700 hover:bg-gray-700/50 transition ${isLoggedIn && !isLocked ? 'cursor-pointer' : ''}`} onClick={() => isLoggedIn && !isLocked ? onClick(match) : null}>
-                    <td className="p-3 text-xs sm:text-sm text-gray-300">{new Date(match.date).toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric' })}</td>
-                    <td className="p-3 text-xs sm:text-sm text-gray-400">{new Date(match.date).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' })}</td>
-                    <td className="p-3 text-sm sm:text-base font-semibold text-white text-right">{match.teamA}</td>
-                    <td className="p-3 text-center text-xs text-gray-500">VS</td>
-                    <td className="p-3 text-sm sm:text-base font-semibold text-white text-left">{match.teamB}</td>
-                    {isLoggedIn && (
-                        <td className="p-3 text-center">
-                            {renderPredictionStatus()}
-                        </td>
-                    )}
-                    <td className="p-3 text-xs sm:text-sm font-semibold text-yellow-400 text-center">
-                        {match.officialWinner ? `勝: ${match.officialWinner}` : '-'}
-                    </td>
-                </tr>
-            );
-        };
-
-        // --- Component: Match Table ---
-        const MatchTable = ({ matches, predictions, onPredict, setSelectedMatch, isLoggedIn }) => {
-            const [activeTab, setActiveTab] = useState('C組');
-            const tabs = ['A組', 'B組', 'C組', 'D組', '八強', '四強', '決賽'];
-            const filteredMatches = useMemo(() => matches.filter(match => match.group === activeTab), [matches, activeTab]);
-
-            return (
-                <div className="bg-gray-800 p-4 sm:p-6 rounded-xl shadow-2xl mb-10 border border-blue-500/50 relative overflow-hidden">
-                    <h2 className="text-xl sm:text-3xl font-extrabold text-white mb-4 border-b border-gray-700 pb-2 flex items-center">
-                        <Trophy className="w-6 h-6 mr-3 text-blue-400" />
-                        預測賽事區
-                        {!isLoggedIn && <span className="ml-4 text-xs font-normal text-gray-400 hidden sm:inline">(登入後即可參與預測)</span>}
-                    </h2>
-
-                    <div className="flex overflow-x-auto space-x-3 pb-3 mb-4">
-                        {tabs.map(tab => (
-                            <button
-                                key={tab}
-                                onClick={() => setActiveTab(tab)}
-                                className={`px-3 py-1.5 font-semibold text-sm rounded-full whitespace-nowrap transition duration-200 ${
-                                    activeTab === tab ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                                }`}
-                            >
-                                {tab}
-                            </button>
-                        ))}
-                    </div>
-
-                    <div className="overflow-x-auto rounded-lg border border-gray-700">
-                        <table className="min-w-full">
-                            <thead className="bg-gray-700">
-                                <tr>
-                                    <th className="p-3 text-left text-xs font-bold text-gray-400 w-1/6">日期</th>
-                                    <th className="p-3 text-left text-xs font-bold text-gray-400 w-1/12">時間</th>
-                                    <th className="p-3 text-right text-xs font-bold text-gray-400 w-1/5">隊伍</th>
-                                    <th className="p-3 text-center text-xs font-bold text-gray-400 w-1/12">VS</th>
-                                    <th className="p-3 text-left text-xs font-bold text-gray-400 w-1/5">隊伍</th>
-                                    {isLoggedIn && <th className="p-3 text-center text-xs font-bold text-gray-400 w-1/6">您的預測</th>}
-                                    <th className="p-3 text-center text-xs font-bold text-gray-400 w-1/6">賽果</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-700">
-                                {filteredMatches.length === 0 ? (
-                                    <tr><td colSpan={isLoggedIn ? 7 : 6} className="p-10 text-center text-gray-500">暫無賽事</td></tr>
-                                ) : (
-                                    filteredMatches.map(match => (
-                                        <MatchTableRow
-                                            key={match.id}
-                                            match={match}
-                                            prediction={predictions[match.id]}
-                                            onClick={setSelectedMatch}
-                                            isLoggedIn={isLoggedIn}
-                                        />
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                    {isLoggedIn && (
-                        <p className="mt-4 p-3 bg-blue-900/50 text-blue-300 rounded-lg text-sm text-center">
-                            點擊賽事列即可進行預測。（八強/四強/決賽將即時更新）
-                        </p>
-                    )}
-                </div>
-            );
-        };
-
-        // --- Component: Prize Progress ---
-        const PrizeProgress = ({ totalWins, prizesStatus, isLoggedIn }) => {
-            const prizes = [
-                { wins: 10, prize: '7-11禮券 100元', id: 'wins_10' },
-                { wins: 20, prize: '7-11禮券 500元', id: 'wins_20' },
-                { wins: 30, prize: '7-11禮券 1000元', id: 'wins_30' },
-                { wins: 40, prize: '7-11禮券 2000元', id: 'wins_40' },
-            ];
-            
-            return (
-                <div className="bg-gray-800 p-4 sm:p-6 rounded-xl shadow-2xl mb-10 border border-yellow-700/50">
-                    <h2 className="text-xl sm:text-3xl font-extrabold text-white mb-4 flex items-center justify-center">
-                        <Gift className="w-6 h-6 mr-3 text-yellow-400" />
-                        預測成功好禮
-                    </h2>
-                    
-                    {isLoggedIn && (
-                        <div className="flex justify-between items-center text-center text-gray-400 mb-4 border-b border-gray-700 pb-3">
-                            <span className="text-lg font-semibold w-full">當前成功局數: <span className="text-yellow-400 text-2xl ml-1">{totalWins}</span> 局</span>
+                order.items.forEach((item, iIdx) => {
+                    const li = document.createElement('li');
+                    li.className = "flex justify-between items-start text-gray-700 group/item bg-white rounded-lg p-1 hover:bg-gray-50 transition-colors";
+                    li.innerHTML = `
+                        <div class="flex-1 pr-4">
+                            <span class="font-bold block text-gray-800">${item.name}</span>
+                            ${item.details ? `<span class="text-xs text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded inline-block mt-1">${item.details}</span>` : ''}
                         </div>
-                    )}
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                        {prizes.map((p) => {
-                            const isAchieved = isLoggedIn && totalWins >= p.wins;
-                            const status = prizesStatus?.[p.id];
-                            const isSent = status === 'SENT';
-                            
-                            let cardColor = 'bg-gray-700 border-gray-600';
-                            
-                            let badge = '預測獎勵';
-                            if (isLoggedIn) {
-                                if (isSent) badge = '已寄出';
-                                else if (isAchieved) badge = '已達成';
-                                else badge = '未達成';
-                            }
-                            
-                            let iconWrapperStyle = 'flex items-center justify-center h-12 w-12 mx-auto rounded-full bg-yellow-500/20 mb-3 border-4 border-yellow-500/50';
-                            if (isLoggedIn && (isAchieved || isSent)) {
-                                iconWrapperStyle += ' grayscale opacity-50';
-                            }
-
-                            return (
-                                <div key={p.id} className={`p-3 rounded-xl shadow-lg transition duration-300 hover:scale-105 ${cardColor} relative group`}>
-                                    <div className={`text-center relative z-10`}>
-                                        <p className="text-sm font-bold text-white mb-2">{p.wins} 局</p>
-                                        <div className={iconWrapperStyle}>
-                                            <Gift className="w-6 h-6 text-yellow-300" />
-                                        </div>
-                                        <p className="text-xs font-semibold text-gray-300">{p.prize}</p>
-                                    </div>
-                                    <div className="text-center mt-2">
-                                        <span className={`inline-block px-2 py-0.5 text-xs font-bold rounded-full ${isLoggedIn && (isAchieved || isSent) ? (isSent ? 'bg-blue-600 text-white' : 'bg-gray-500 text-gray-300') : 'text-white'}`}>
-                                            {badge}
-                                        </span>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                        <div class="flex items-center">
+                            <span class="font-bold text-gray-400 mr-2">$${item.finalPrice}</span>
+                            ${isEditing && item.productId ? `<div class="flex space-x-1" id="item-actions-${idx}-${iIdx}"></div>` : ''}
+                        </div>
+                    `;
+                    
+                    if(isEditing && item.productId) {
+                        const actDiv = li.querySelector(`#item-actions-${idx}-${iIdx}`);
                         
-                        {(() => {
-                            const isAchieved = isLoggedIn && totalWins >= 40;
-                            const badge = isLoggedIn ? (isAchieved ? '已達成' : '未達成') : '預測獎勵';
-                            
-                            let iconWrapperStyle = 'flex items-center justify-center h-12 w-12 mx-auto rounded-full bg-pink-500/20 mb-3 border-4 border-pink-500/50';
-                            if (isLoggedIn && isAchieved) {
-                                iconWrapperStyle += ' grayscale opacity-50';
-                            }
-                            
-                            return (
-                                <div className={`p-3 rounded-xl shadow-lg transition duration-300 hover:scale-105 bg-gray-700 border-gray-600`}>
-                                    <div className={`text-center`}>
-                                        <p className="text-sm font-bold text-white mb-2 text-center">加碼 40 局</p>
-                                        <div className={iconWrapperStyle}>
-                                            <Star className="w-6 h-6 text-pink-300" />
-                                        </div>
-                                        <p className={`text-xs font-semibold ${isLoggedIn && !isAchieved ? 'text-pink-400' : 'text-gray-400'} text-center`}>iPhone 17 * 1</p>
-                                    </div>
-                                    <div className="text-center mt-2">
-                                        <span className={`inline-block px-2 py-0.5 text-xs font-bold rounded-full ${isLoggedIn && isAchieved ? 'bg-gray-500 text-gray-300' : 'text-white'}`}>
-                                            {badge}
-                                        </span>
-                                    </div>
-                                </div>
-                            );
-                        })()}
-                    </div>
-                    
-                    <p className="mt-4 text-center text-sm text-gray-400">
-                        <span className="text-red-400 font-bold">*</span> 40 局加碼禮：需決賽+冠軍賽預測成功才具備抽獎資格。
-                    </p>
-                </div>
-            );
-        };
-
-        // --- Component: Referral Recruitment ---
-        const ReferralRecruitment = ({ referralCode, referredCount, isLoggedIn, handleCopyReferral, prizesStatus }) => {
-            const tiers = [
-                { count: 10, prize: '7-11禮券 50元', description: '邀請 10 人', id: 'referral_10' },
-                { count: 20, prize: '7-11禮券 100元', description: '邀請 20 人', id: 'referral_20' },
-                { count: 30, prize: '7-11禮券 300元', description: '邀請 30 人', id: 'referral_30' },
-            ];
-
-            return (
-                <div className="bg-gray-800 p-4 sm:p-6 rounded-xl shadow-2xl mb-10 border border-green-700/50">
-                    <h2 className="text-xl sm:text-3xl font-extrabold text-white mb-2 flex items-center justify-center">
-                        <Users className="w-6 h-6 mr-3 text-green-400" />
-                        好友招募
-                    </h2>
-                    <div className="text-center text-lg font-semibold text-yellow-400 mb-6 border-b border-gray-700 pb-3">
-                        <p>【 集結好友 X 作伙預測！ 】</p>
-                        <p>完成預約後立即招募好友，成功招募越多人，獎勵越豐富！</p>
-                    </div>
-                    
-                    {isLoggedIn && (
-                        <div className="flex flex-col sm:flex-row items-center justify-between space-y-4 sm:space-y-0 sm:space-x-6 mb-6 p-4 border border-green-700 rounded-lg bg-gray-700/30">
-                            <div className="text-center sm:text-left">
-                                <p className="text-sm font-semibold text-gray-400">當前已邀請人數</p>
-                                <p className="text-green-400 text-3xl font-extrabold">{referredCount}</p>
-                            </div>
-                            <div className="flex-1 min-w-0 w-full sm:w-auto">
-                                <p className="text-sm font-semibold text-gray-400 mb-1">您的專屬邀請碼</p>
-                                <div className="flex">
-                                    <span className="flex-1 text-lg font-mono px-4 py-2 bg-gray-700 rounded-l-lg text-white border border-green-500/50 truncate">
-                                        {referralCode}
-                                    </span>
-                                    <button
-                                        onClick={handleCopyReferral}
-                                        className="flex items-center px-4 py-2 bg-green-600 text-white font-semibold rounded-r-lg hover:bg-green-700 transition duration-200"
-                                    >
-                                        <Copy className="w-4 h-4 mr-2" />複製
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                        {tiers.map((t) => {
-                            const isAchieved = isLoggedIn && referredCount >= t.count;
-                            const status = prizesStatus?.[t.id];
-                            const isSent = status === 'SENT';
-
-                            let cardColor = 'bg-gray-700 border-gray-600';
-                            let badge = '招募獎勵';
-                            if (isLoggedIn) {
-                                if (isSent) badge = '已寄出';
-                                else if (isAchieved) badge = '已達成';
-                                else badge = '未達成';
-                            }
-                            
-                            let iconWrapperStyle = 'flex items-center justify-center h-12 w-12 mx-auto rounded-full bg-green-500/20 mb-3 border-4 border-green-500/50';
-                            if (isLoggedIn && (isAchieved || isSent)) {
-                                iconWrapperStyle += ' grayscale opacity-50';
-                            }
-
-                            return (
-                                <div key={t.count} className={`p-3 rounded-xl shadow-lg transition duration-300 hover:scale-105 ${cardColor}`}>
-                                    <div className="text-center">
-                                        <p className="text-sm font-bold text-white mb-2">{t.description}</p>
-                                        <div className={iconWrapperStyle}>
-                                            <Users className="w-6 h-6 text-green-300" />
-                                        </div>
-                                        <p className="text-xs font-semibold text-gray-400">{t.prize}</p>
-                                    </div>
-                                    <div className="text-center mt-2">
-                                        <span className={`inline-block px-2 py-0.5 text-xs font-bold rounded-full ${isLoggedIn && (isAchieved || isSent) ? (isSent ? 'bg-blue-600 text-white' : 'bg-gray-500 text-gray-300') : 'text-white'}`}>
-                                            {badge}
-                                        </span>
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
-                </div>
-            );
-        };
-
-        // --- Component: Banner Section (Hero) ---
-        const BannerSection = ({ profile, isLoggedIn, handleSignOut }) => {
-            return (
-                <div className="relative w-full overflow-hidden bg-gray-800 shadow-2xl rounded-xl mb-10 border-4 border-blue-600/50 group">
-                    <div className="absolute inset-0 bg-gradient-to-b from-gray-900 via-gray-900/40 to-transparent pointer-events-none z-10"></div>
-
-                    <div className="relative z-20 w-full h-full p-6 flex flex-col items-start">
+                        // Edit Item Btn
+                        const editItemBtn = document.createElement('button');
+                        editItemBtn.className = "text-blue-400 hover:text-blue-600 p-1 bg-blue-50 rounded";
+                        editItemBtn.innerHTML = `<i data-lucide="edit-3" width="16"></i>`;
+                        editItemBtn.onclick = () => {
+                            state.adminEditingItem = item;
+                            state.isAddingItem = false;
+                            render();
+                        };
                         
-                        <div className="flex flex-col md:flex-row items-start md:items-center justify-start w-full gap-4 mb-6">
-                            
-                            <div className="inline-block px-4 py-1.5 bg-orange-600 text-white font-bold rounded-full shadow-lg text-xs sm:text-sm tracking-wide whitespace-nowrap">
-                                GSBET x WBC 經典賽
-                            </div>
-                            
-                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 bg-gray-900/40 p-2 rounded-xl backdrop-blur-sm border border-white/5 shadow-xl">
-                                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-black text-green-400 tracking-wider italic transform -skew-x-6">
-                                    WBC 預測風潮
-                                </h1>
+                        // Safe Delete Item Btn
+                        const delItemBtn = document.createElement('button');
+                        delItemBtn.className = "text-red-400 hover:text-red-600 p-1 bg-red-50 rounded";
+                        delItemBtn.innerHTML = `<i data-lucide="trash-2" width="16"></i>`;
+                        let itemConfirming = false;
+                        delItemBtn.onclick = async () => {
+                            if(itemConfirming) {
+                                const targetOrder = state.orders.find(o => o.id === item._docId);
+                                if(targetOrder) {
+                                    const newItems = targetOrder.items.filter((_, ix) => ix !== item._itemIdx);
+                                    const newTotal = newItems.reduce((acc, it) => acc + Number(it.finalPrice), 0);
+                                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', item._docId), { items: newItems, totalAmount: newTotal });
+                                    addToast('餐點已刪除', 'success');
+                                }
+                            } else {
+                                itemConfirming = true;
+                                delItemBtn.className = "bg-red-600 text-white p-1 rounded transition scale-110";
+                                setTimeout(() => {
+                                    itemConfirming = false;
+                                    delItemBtn.className = "text-red-400 hover:text-red-600 p-1 bg-red-50 rounded";
+                                }, 2000);
+                            }
+                        };
 
-                                <div className="flex items-center gap-2">
-                                    <div className="bg-white text-gray-900 p-1 rounded-full shadow-lg transform scale-100">
-                                        <Zap className="w-4 h-4 fill-current" />
-                                    </div>
+                        actDiv.appendChild(editItemBtn);
+                        actDiv.appendChild(delItemBtn);
+                    }
+                    ul.appendChild(li);
+                });
+                cardBody.appendChild(ul);
 
-                                    <span className="text-lg sm:text-xl font-bold text-white tracking-wide">
-                                        好禮拿不完
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="w-full flex justify-center items-end mt-20 mb-10">
-                        </div>
-                    </div>
-                    
-                    <div 
-                        className="absolute inset-0 bg-cover bg-center opacity-40 z-0" 
-                        style={{ backgroundImage: `url('https://placehold.co/1200x600/1e293b/fbbf24?text=Lightning+Bg')` }}
-                    ></div>
-                </div>
-            );
-        };
-
-        // --- Component: Pre-Registration Section ---
-        const PreRegistrationSection = () => {
-            const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
-
-            const handleRegistrationSubmit = (formData) => {
-                console.log("Registration:", formData);
-                alert(`預約註冊成功！請記得加入 LINE@ 開通帳號。\n帳號: ${formData.username}`);
-            };
-
-            return (
-                <>
-                    <div className="bg-gray-800 rounded-xl shadow-2xl mb-10 border border-green-500/50 flex flex-col lg:flex-row overflow-hidden">
-                        
-                        <div className="lg:w-1/2 bg-gray-900/90 p-8 flex flex-col items-center justify-center text-center border-r border-gray-700 relative">
-                            <div className="absolute inset-0 opacity-10 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-yellow-500 via-gray-900 to-gray-900"></div>
-                            <h2 className="text-2xl font-bold text-white mb-6 relative z-10">事前預約好禮</h2>
-                            
-                            <div className="w-40 h-40 bg-gray-800 rounded-full flex items-center justify-center border-4 border-yellow-500 shadow-[0_0_20px_rgba(234,179,8,0.5)] mb-6 relative z-10">
-                                <Gift className="w-20 h-20 text-yellow-400" />
-                            </div>
-                            
-                            <div className="relative z-10">
-                                <p className="text-xl font-bold text-white mb-1">預約成功可先領取獎勵</p>
-                                <p className="text-3xl font-extrabold text-yellow-400 mb-2">7-11 禮券 50 元</p>
-                                <p className="text-sm text-gray-400 mt-2 bg-black/40 px-3 py-1 rounded-full inline-block">
-                                    * 但須預測成功 15 局才會發放
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="lg:w-1/2 p-8 flex flex-col justify-center space-y-6 bg-gray-800">
-                            <div className="bg-gray-700/50 p-6 rounded-xl border border-green-500/30">
-                                <h3 className="text-lg font-bold text-white mb-2 flex items-center">
-                                    <MessageSquare className="w-5 h-5 mr-2 text-green-400" />
-                                    1. 官方 LINE@ 加入好友 (必要)
-                                </h3>
-                                <p className="text-sm text-gray-400 mb-4 ml-7">
-                                    點擊下方按鈕連結到 LINE@，後續再提供連結資訊。
-                                </p>
-                                <button className="w-full py-3 bg-[#06C755] hover:bg-[#05b54d] text-white font-bold rounded-lg transition shadow-lg flex items-center justify-center">
-                                    <MessageSquare className="w-5 h-5 mr-2" /> 加入 LINE 好友
-                                </button>
-                            </div>
-
-                            <div className="bg-gray-700/50 p-6 rounded-xl border border-blue-500/30">
-                                <h3 className="text-lg font-bold text-white mb-2 flex items-center">
-                                    <User className="w-5 h-5 mr-2 text-blue-400" />
-                                    2. 填寫預約資訊
-                                </h3>
-                                <p className="text-sm text-gray-400 mb-4 ml-7">
-                                    填寫基本資料完成預約，即可獲得預測資格。
-                                </p>
-                                <button 
-                                    onClick={() => setIsRegisterModalOpen(true)}
-                                    className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition shadow-lg flex items-center justify-center"
-                                >
-                                    <MousePointer className="w-5 h-5 mr-2" /> 預約註冊
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <RegistrationModal 
-                        isOpen={isRegisterModalOpen} 
-                        onClose={() => setIsRegisterModalOpen(false)} 
-                        onFormSubmit={handleRegistrationSubmit}
-                    />
-                </>
-            );
-        };
-
-        // --- Main App Component ---
-        const App = () => {
-            const { db, auth, isFirebaseReady, getUserId, handleSignOut } = useFirebase();
-            
-            const [isLoggedIn, setIsLoggedIn] = useState(false);
-            const [userProfile, setUserProfile] = useState(null); 
-            
-            const [matches, setMatches] = useState([]);
-            const [predictions, setPredictions] = useState({});
-            const [selectedMatch, setSelectedMatch] = useState(null);
-            const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-            const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-
-            const userId = getUserId(); 
-
-            useEffect(() => {
-                // If not connected to Firebase (Demo Mode), load dummy data
-                if (!db) {
-                     const now = Date.now();
-                     const dummy = [
-                        { id: 'm1', teamA: '台灣', teamB: '澳洲', date: new Date(now + 86400000).toISOString(), group: 'C組', officialWinner: '', ratioA: 65 },
-                        { id: 'm2', teamA: '日本', teamB: '韓國', date: new Date(now + 172800000).toISOString(), group: 'C組', officialWinner: '日本', ratioA: 72 },
-                        { id: 'm3', teamA: '捷克', teamB: '中國', date: new Date(now + 259200000).toISOString(), group: 'C組', officialWinner: '', ratioA: 48 },
-                        { id: 'm4', teamA: '荷蘭', teamB: '古巴', date: new Date(now + 86400000).toISOString(), group: 'A組', officialWinner: '', ratioA: 55 },
-                        { id: 'm5', teamA: '義大利', teamB: '巴拿馬', date: new Date(now + 172800000).toISOString(), group: 'A組', officialWinner: '', ratioA: 60 },
-                        { id: 'm6', teamA: '美國', teamB: '英國', date: new Date(now + 86400000).toISOString(), group: 'B組', officialWinner: '', ratioA: 80 },
-                        { id: 'm7', teamA: '墨西哥', teamB: '哥倫比亞', date: new Date(now + 172800000).toISOString(), group: 'B組', officialWinner: '', ratioA: 52 },
-                        { id: 'm8', teamA: '委內瑞拉', teamB: '多明尼加', date: new Date(now + 86400000).toISOString(), group: 'D組', officialWinner: '', ratioA: 45 },
-                        { id: 'm9', teamA: '波多黎各', teamB: '以色列', date: new Date(now + 172800000).toISOString(), group: 'D組', officialWinner: '', ratioA: 68 },
-                        { id: 'qf1', teamA: '日本', teamB: '義大利', date: new Date(now + 500000000).toISOString(), group: '八強', officialWinner: '', ratioA: 70 },
-                        { id: 'sf1', teamA: '美國', teamB: '古巴', date: new Date(now + 600000000).toISOString(), group: '四強', officialWinner: '', ratioA: 62 },
-                        { id: 'f1', teamA: '日本', teamB: '美國', date: new Date(now + 700000000).toISOString(), group: '決賽', officialWinner: '', ratioA: 50 },
-                     ];
-                     setMatches(dummy);
-                     return;
+                // Add Item Button
+                if (isEditing) {
+                    const addBtn = document.createElement('button');
+                    addBtn.className = "w-full mt-3 py-2 border-2 border-dashed border-blue-200 rounded-lg text-blue-500 text-sm font-bold hover:bg-blue-50 transition flex items-center justify-center";
+                    addBtn.innerHTML = `<i data-lucide="plus-circle" width="16" class="mr-1"></i> 新增餐點`;
+                    addBtn.onclick = () => {
+                        const targetDocId = order.docIds[0]; // Latest order
+                        state.adminEditingItem = { productId: PRODUCTS_DATA[0].id, _docId: targetDocId, selections: {} };
+                        state.isAddingItem = true;
+                        render();
+                    };
+                    cardBody.appendChild(addBtn);
                 }
 
-                if (!userId) return;
-                const matchesRef = collection(db, `artifacts/${appId}/public/data/matches`);
-                const unsub = onSnapshot(matchesRef, (snap) => {
-                    let data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                     if (data.length === 0) {
-                         const now = Date.now();
-                         const dummy = [
-                            { id: 'm1', teamA: '台灣', teamB: '澳洲', date: new Date(now + 86400000).toISOString(), group: 'C組', officialWinner: '', ratioA: 65 },
-                            { id: 'm2', teamA: '日本', teamB: '韓國', date: new Date(now + 172800000).toISOString(), group: 'C組', officialWinner: '日本', ratioA: 72 },
-                            { id: 'm3', teamA: '捷克', teamB: '中國', date: new Date(now + 259200000).toISOString(), group: 'C組', officialWinner: '', ratioA: 48 },
-                            { id: 'm4', teamA: '荷蘭', teamB: '古巴', date: new Date(now + 86400000).toISOString(), group: 'A組', officialWinner: '', ratioA: 55 },
-                            { id: 'm5', teamA: '義大利', teamB: '巴拿馬', date: new Date(now + 172800000).toISOString(), group: 'A組', officialWinner: '', ratioA: 60 },
-                            { id: 'm6', teamA: '美國', teamB: '英國', date: new Date(now + 86400000).toISOString(), group: 'B組', officialWinner: '', ratioA: 80 },
-                            { id: 'm7', teamA: '墨西哥', teamB: '哥倫比亞', date: new Date(now + 172800000).toISOString(), group: 'B組', officialWinner: '', ratioA: 52 },
-                            { id: 'm8', teamA: '委內瑞拉', teamB: '多明尼加', date: new Date(now + 86400000).toISOString(), group: 'D組', officialWinner: '', ratioA: 45 },
-                            { id: 'm9', teamA: '波多黎各', teamB: '以色列', date: new Date(now + 172800000).toISOString(), group: 'D組', officialWinner: '', ratioA: 68 },
-                            { id: 'qf1', teamA: '日本', teamB: '義大利', date: new Date(now + 500000000).toISOString(), group: '八強', officialWinner: '', ratioA: 70 },
-                            { id: 'sf1', teamA: '美國', teamB: '古巴', date: new Date(now + 600000000).toISOString(), group: '四強', officialWinner: '', ratioA: 62 },
-                            { id: 'f1', teamA: '日本', teamB: '美國', date: new Date(now + 700000000).toISOString(), group: '決賽', officialWinner: '', ratioA: 50 },
-                         ];
-                         setMatches(dummy);
-                     } else {
-                         data.sort((a,b) => new Date(a.date) - new Date(b.date));
-                         setMatches(data);
-                     }
-                }, (error) => {
-                    console.error("Error fetching matches:", error);
-                });
-                return () => unsub();
-            }, [db, userId]);
+                // Total
+                const footer = document.createElement('div');
+                footer.className = `mt-4 pt-3 border-t border-gray-100 flex justify-between items-center ${isEditing ? 'text-blue-600' : 'text-amber-600'}`;
+                footer.innerHTML = `
+                    <span class="text-xs font-bold text-gray-400">總計 ${order.items.length} 樣餐點</span>
+                    <span class="font-black text-2xl">$${order.totalAmount}</span>
+                `;
+                cardBody.appendChild(footer);
 
-            useEffect(() => {
-                if (!db || !userId) return; 
+                card.appendChild(cardHead);
+                card.appendChild(cardBody);
+                grid.appendChild(card);
+            });
 
-                const predsRef = collection(db, `artifacts/${appId}/users/${userId}/predictions`);
-                const unsubPreds = onSnapshot(predsRef, (snap) => {
-                    const map = {};
-                    snap.docs.forEach(d => map[d.id] = d.data());
-                    setPredictions(map);
-                }, (error) => {
-                    console.error("Error fetching predictions:", error);
-                });
+            container.appendChild(grid);
+            return container;
+        }
 
-                return () => { unsubPreds(); };
-            }, [db, userId]);
+        // --- Admin Item Edit Modal (Same logic as ItemModal but for Updating) ---
+        function createAdminItemModal(item) {
+            const overlay = document.createElement('div');
+            overlay.className = "fixed inset-0 bg-black/60 backdrop-blur-sm z-[80] flex justify-center items-center p-4 animate-fade-in";
+            
+            // Logic setup (Copy of ItemModal logic but pre-filled)
+            const product = PRODUCTS_DATA.find(p => p.id === item.productId) || BEVERAGES_DATA.find(b => b.id === item.productId);
+            if(!product) return document.createElement('div'); // Fail safe
 
-            const handleLoginSuccess = () => {
-                setIsLoggedIn(true);
-                setUserProfile({
-                    username: 'ABC',
-                    password: '123',
-                    nickname: '測試員',
-                    phone: '0988776543',
-                    email: 'Aabc@gmail.com',
-                    address: '臺北市中正區重慶南路一段122號',
-                    successfulPredictions: 25, 
-                    referredUsers: 28, 
-                    referralCode: 'WBC888',
-                    prizesStatus: {
-                        'wins_10': 'SENT', 
-                        'referral_10': 'SENT' 
-                    }, 
-                });
+            // State vars for editing
+            let selections = { ...(item.selections || {}) };
+            let drinkTemp = item.selections?.drinkTemp || 'ice';
+            let selectedDrink = item.selections?.selectedDrink || null;
+            
+            const rules = product.modifierRules || {};
+            const isBeverageMode = product.categoryId === 'beverage';
+
+            const modal = document.createElement('div');
+            modal.className = "bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]";
+            
+            modal.innerHTML = `
+                <div class="bg-blue-600 p-4 flex justify-between items-center text-white">
+                    <h3 class="font-bold text-lg">編輯: ${product.name}</h3>
+                    <button id="close-admin-modal"><i data-lucide="x" width="24"></i></button>
+                </div>
+                <div class="p-6 overflow-y-auto scrollbar-thin" id="admin-modal-content"></div>
+                <div class="p-4 border-t border-gray-100 flex justify-between items-center bg-gray-50">
+                    <span class="font-black text-2xl text-blue-600" id="admin-price">$0</span>
+                    <button id="admin-save" class="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-blue-700 transition flex items-center">
+                        <i data-lucide="save" class="mr-2" width="18"></i> 儲存修改
+                    </button>
+                </div>
+            `;
+
+            const content = modal.querySelector('#admin-modal-content');
+            const priceDisplay = modal.querySelector('#admin-price');
+
+            // Render Select Helpers
+            const renderSelect = (key, title, options) => {
+                const div = document.createElement('div');
+                div.className = "mb-4";
+                div.innerHTML = `
+                    <label class="block text-sm font-bold text-gray-700 mb-1">${title} <span class="text-red-500">*</span></label>
+                    <div class="relative">
+                        <select class="w-full p-3 bg-white border border-gray-300 rounded-xl appearance-none font-bold text-gray-800 focus:outline-none focus:ring-2 focus:ring-amber-400">
+                            <option value="" disabled ${!selections[key] ? 'selected' : ''}>請選擇${title}</option>
+                            ${options.map(opt => `<option value="${opt.id}" ${selections[key] === opt.id ? 'selected' : ''}>${opt.name} ${opt.priceDelta > 0 ? `(+$${opt.priceDelta})` : ''}</option>`).join('')}
+                        </select>
+                        <i data-lucide="chevron-down" class="absolute right-3 top-3.5 text-gray-400 pointer-events-none" width="20"></i>
+                    </div>
+                `;
+                div.querySelector('select').onchange = (e) => {
+                    selections[key] = e.target.value;
+                    update();
+                };
+                return div;
             };
 
-            const handleLogout = () => {
-                setIsLoggedIn(false);
-                setUserProfile(null);
-            };
+            const renderUI = () => {
+                content.innerHTML = '';
+                if (rules.meat) content.appendChild(renderSelect('meat', '肉品', MODIFIER_OPTIONS.meat));
+                if (rules.spiciness) content.appendChild(renderSelect('spiciness', '辣度', MODIFIER_OPTIONS.spiciness));
+                if (rules.potType) content.appendChild(renderSelect('potType', '鍋底', MODIFIER_OPTIONS.potType));
+                if (rules.sauce) content.appendChild(renderSelect('sauce', '醬汁', MODIFIER_OPTIONS.sauce));
+                if (rules.noodle) content.appendChild(renderSelect('noodle', '麵條', MODIFIER_OPTIONS.noodle));
+                if (rules.starch) content.appendChild(renderSelect('starch', '主食', MODIFIER_OPTIONS.starch));
 
-            const handleUpdateProfile = (newProfile) => {
-                setUserProfile(newProfile);
-                alert("會員資料更新成功！");
-            };
+                if (rules.drinkType) {
+                    const div = document.createElement('div');
+                    div.className = "mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200";
+                    div.innerHTML = `
+                        <label class="block text-sm font-bold text-gray-700 mb-2">飲品調整</label>
+                        <select class="w-full p-2 mb-2 border border-gray-300 rounded-lg font-bold">
+                            <option value="" disabled ${!selectedDrink ? 'selected' : ''}>請選擇飲品</option>
+                            <optgroup label="基本附餐 (免費/半價)">
+                                ${BASIC_SIDE_DRINKS.map(d => `<option value="${d.id}" ${selectedDrink?.id === d.id && !selectedDrink?.isUpgrade ? 'selected' : ''}>${d.name}</option>`).join('')}
+                            </optgroup>
+                            <optgroup label="其他飲品 (加購)">
+                                ${BEVERAGES_DATA.map(d => `<option value="${d.id}" ${selectedDrink?.id === d.id && selectedDrink?.isUpgrade ? 'selected' : ''}>${d.name} (+$${d.price/2})</option>`).join('')}
+                            </optgroup>
+                        </select>
+                    `;
+                    const select = div.querySelector('select');
+                    select.onchange = (e) => {
+                        const drink = [...BASIC_SIDE_DRINKS, ...BEVERAGES_DATA].find(d => d.id === e.target.value);
+                        const isUpgrade = !BASIC_SIDE_DRINKS.find(bd => bd.id === drink.id);
+                        selectedDrink = { ...drink, isUpgrade };
+                        update();
+                    };
+                    
+                    if (selectedDrink?.temp === 'both') {
+                        const tempDiv = document.createElement('div');
+                        tempDiv.className = "flex space-x-2 mt-2";
+                        tempDiv.innerHTML = `
+                            <button class="flex-1 py-1 rounded border font-bold text-sm ${drinkTemp === 'ice' ? 'bg-blue-100 text-blue-700 border-blue-300' : 'bg-white'}">冰</button>
+                            <button class="flex-1 py-1 rounded border font-bold text-sm ${drinkTemp === 'hot' ? 'bg-red-100 text-red-700 border-red-300' : 'bg-white'}">熱</button>
+                        `;
+                        tempDiv.children[0].onclick = () => { drinkTemp = 'ice'; update(); };
+                        tempDiv.children[1].onclick = () => { drinkTemp = 'hot'; update(); };
+                        div.appendChild(tempDiv);
+                    }
+                    content.appendChild(div);
+                }
 
-            const handlePredict = async (matchId, team) => {
-                if (!isLoggedIn) return; 
+                if (isBeverageMode && product.temp === 'both') {
+                    const div = document.createElement('div');
+                    div.className = "mb-4";
+                    div.innerHTML = `
+                        <label class="block text-sm font-bold text-gray-700 mb-1">溫度</label>
+                        <div class="flex space-x-2">
+                            <button class="flex-1 py-2 rounded-lg border font-bold ${drinkTemp === 'ice' ? 'bg-blue-500 text-white border-blue-600' : 'bg-white text-gray-500 border-gray-300'}">冰</button>
+                            <button class="flex-1 py-2 rounded-lg border font-bold ${drinkTemp === 'hot' ? 'bg-red-500 text-white border-red-600' : 'bg-white text-gray-500 border-gray-300'}">熱</button>
+                        </div>
+                    `;
+                    div.querySelectorAll('button')[0].onclick = () => { drinkTemp = 'ice'; update(); };
+                    div.querySelectorAll('button')[1].onclick = () => { drinkTemp = 'hot'; update(); };
+                    content.appendChild(div);
+                }
                 
-                // If demo mode (no db), just update local state for visual feedback
-                if (!db || !userId) {
-                    setPredictions(prev => ({
-                        ...prev,
-                        [matchId]: { matchId, predictedWinner: team }
-                    }));
-                    return;
-                }
+                lucide.createIcons();
+            }
 
-                const ref = doc(db, `artifacts/${appId}/users/${userId}/predictions/${matchId}`);
-                await setDoc(ref, { matchId, predictedWinner: team }, { merge: true });
+            const update = () => {
+                // Calculate Price
+                let total = product.price;
+                if (!isBeverageMode) {
+                    Object.keys(selections).forEach(k => {
+                        const grp = MODIFIER_OPTIONS[k];
+                        if (grp) {
+                            const opt = grp.find(o => o.id === selections[k]);
+                            if (opt) total += opt.priceDelta;
+                        }
+                    });
+                    if (selectedDrink) {
+                        if (selectedDrink.isUpgrade || rules.drinkType === 'typeA') total += (selectedDrink.price / 2);
+                        else total += selectedDrink.price;
+                    }
+                }
+                priceDisplay.innerText = `$${total}`;
+                renderUI();
+                return total;
             };
 
-            const handleCopyReferral = () => {
-                if(userProfile?.referralCode) {
-                    copyToClipboard(userProfile.referralCode);
+            // Save Action
+            modal.querySelector('#admin-save').onclick = async () => {
+                // Validate
+                if (!isBeverageMode) {
+                    if (rules.meat && !selections.meat) { addToast('漏選 [肉品]！', 'error'); return; }
+                    if (rules.spiciness && !selections.spiciness) { addToast('漏選 [辣度]！', 'error'); return; }
+                    if (rules.starch && !selections.starch) { addToast('漏選 [主食]！', 'error'); return; }
+                    if (rules.sauce && !selections.sauce) { addToast('漏選 [醬汁]！', 'error'); return; }
+                    if (rules.noodle && !selections.noodle) { addToast('漏選 [麵條]！', 'error'); return; }
+                    if (rules.potType && !selections.potType) { addToast('漏選 [鍋底]！', 'error'); return; }
+                    if (rules.drinkType === 'typeB' && !selectedDrink) { addToast('漏選 [飲品]！', 'error'); return; }
                 }
+
+                // Construct Data
+                let detailsStr = '';
+                if (isBeverageMode) {
+                    detailsStr = product.temp === 'both' ? (drinkTemp === 'ice' ? '(冰)' : '(熱)') : '';
+                } else {
+                    const parts = [];
+                    Object.keys(selections).forEach(k => {
+                        const opt = MODIFIER_OPTIONS[k]?.find(o => o.id === selections[k]);
+                        if (opt) parts.push(opt.name);
+                    });
+                    if (selectedDrink) {
+                        const t = selectedDrink.temp !== 'both' ? '' : (drinkTemp === 'ice' ? '(冰)' : '(熱)');
+                        const p = selectedDrink.isUpgrade || rules.drinkType === 'typeA' ? '(半價)' : '';
+                        parts.push(`${selectedDrink.name}${t} ${p}`);
+                    }
+                    detailsStr = parts.join(', ');
+                }
+
+                const newItemData = {
+                    ...item, // keep original metadata
+                    name: product.name,
+                    finalPrice: update(),
+                    details: detailsStr,
+                    selections: { ...selections, selectedDrink, drinkTemp }
+                };
+
+                // Firebase Update
+                const targetOrder = state.orders.find(o => o.id === item._docId);
+                if (targetOrder) {
+                    let newItems = [...targetOrder.items];
+                    if (state.isAddingItem) {
+                        // Remove metadata before push
+                        const { _docId, _itemIdx, ...cleanItem } = newItemData;
+                        newItems.push(cleanItem);
+                        addToast('餐點已新增', 'success');
+                    } else {
+                        // Remove metadata before update
+                        const { _docId, _itemIdx, ...cleanItem } = newItemData;
+                        newItems[item._itemIdx] = cleanItem;
+                        addToast('餐點已更新', 'success');
+                    }
+                    const newTotal = newItems.reduce((acc, it) => acc + Number(it.finalPrice), 0);
+                    await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', item._docId), { items: newItems, totalAmount: newTotal });
+                }
+
+                state.adminEditingItem = null;
+                render();
             };
 
-            if (!isFirebaseReady) return <div className="bg-gray-900 min-h-screen text-white flex items-center justify-center">載入中...</div>;
+            modal.querySelector('#close-admin-modal').onclick = () => { state.adminEditingItem = null; render(); };
 
-            return (
-                <div className="bg-gray-900 min-h-screen text-white relative font-sans">
-                    
-                    {!isLoggedIn ? (
-                        <button
-                            onClick={() => setIsLoginModalOpen(true)}
-                            className="fixed top-4 right-4 z-50 px-4 py-2 sm:px-6 sm:py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-full shadow-lg border-2 border-white/20 transition transform hover:scale-105 text-sm sm:text-base"
-                        >
-                            會員登入
-                        </button>
-                    ) : (
-                        <div className="fixed top-4 right-4 z-50 flex items-center gap-2 sm:gap-3">
-                            <button 
-                                onClick={() => setIsProfileModalOpen(true)}
-                                className="bg-gray-800/90 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border border-green-500/50 text-xs sm:text-sm hover:bg-gray-700 transition cursor-pointer"
-                            >
-                                <span className="text-gray-400">Hi, </span>
-                                <span className="text-green-400 font-bold">{userProfile?.nickname || 'User'}</span>
-                            </button>
-                            <button
-                                onClick={handleLogout}
-                                className="p-1.5 sm:p-2 bg-red-600 hover:bg-red-500 text-white rounded-full shadow-lg transition"
-                                title="登出"
-                            >
-                                <LogOut className="w-4 h-4 sm:w-5 sm:h-5" />
-                            </button>
-                        </div>
-                    )}
+            // Init
+            update();
+            overlay.appendChild(modal);
+            return overlay;
+        }
 
-                    <LoginModal 
-                        isOpen={isLoginModalOpen} 
-                        onClose={() => setIsLoginModalOpen(false)} 
-                        onLoginSuccess={handleLoginSuccess}
-                    />
-                    
-                    <UserProfileModal 
-                        isOpen={isProfileModalOpen}
-                        onClose={() => setIsProfileModalOpen(false)}
-                        userProfile={userProfile}
-                        onUpdateProfile={handleUpdateProfile}
-                    />
-
-                    <div className="max-w-screen-lg mx-auto p-4 sm:p-8 pt-20 sm:pt-24">
-                        
-                        <BannerSection profile={userProfile} isLoggedIn={isLoggedIn} handleSignOut={handleLogout} />
-
-                        <PreRegistrationSection />
-
-                        <MatchTable 
-                            matches={matches} 
-                            predictions={predictions} 
-                            setSelectedMatch={(m) => {
-                                if (isLoggedIn) setSelectedMatch(m);
-                                else alert("請先登入會員，即可參與預測！");
-                            }}
-                            isLoggedIn={isLoggedIn}
-                        />
-
-                        <PrizeProgress 
-                            totalWins={userProfile?.successfulPredictions || 0} 
-                            prizesStatus={userProfile?.prizesStatus || {}}
-                            isLoggedIn={isLoggedIn}
-                        />
-
-                        <ReferralRecruitment 
-                            referralCode={userProfile?.referralCode}
-                            referredCount={userProfile?.referredUsers || 0}
-                            prizesStatus={userProfile?.prizesStatus || {}}
-                            isLoggedIn={isLoggedIn}
-                            handleCopyReferral={handleCopyReferral}
-                        />
-
-                        {selectedMatch && isLoggedIn && (
-                            <PredictionPopup 
-                                match={selectedMatch}
-                                prediction={predictions[selectedMatch.id]}
-                                isOpen={!!selectedMatch}
-                                onClose={() => setSelectedMatch(null)}
-                                onPredict={handlePredict}
-                            />
-                        )}
-                    </div>
-                </div>
-            );
+        // --- Init ---
+        const initAuth = async () => {
+            try {
+                // Check if custom token is provided (environment specific)
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+            } catch (error) {
+                console.error("Auth failed", error);
+                addToast("登入失敗，請重新整理頁面", 'error');
+            }
         };
 
-        const root = createRoot(document.getElementById('root'));
-        root.render(<App />);
+        onAuthStateChanged(auth, (user) => {
+            state.user = user;
+            if (user) {
+                const q = collection(db, 'artifacts', appId, 'public', 'data', 'orders');
+                onSnapshot(q, (snapshot) => {
+                    state.orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    render();
+                }, (error) => {
+                    console.error("Snapshot error:", error);
+                    if (error.code === 'permission-denied') {
+                         console.warn("Permission denied. Waiting for auth state to stabilize...");
+                    }
+                });
+            } else {
+                state.orders = [];
+                render();
+            }
+        });
+
+        // Trigger auth start
+        initAuth();
+
     </script>
 </body>
 </html>
