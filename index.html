@@ -97,9 +97,10 @@
             Info: (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="16" y2="12"/><line x1="12" x2="12.01" y1="8" y2="8"/></IconBase>,
             PlusCircle: (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="16"/><line x1="8" x2="16" y1="12" y2="12"/></IconBase>,
             DollarSign: (p) => <IconBase {...p}><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></IconBase>,
+            Wifi: (p) => <IconBase {...p}><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></IconBase>,
         };
 
-        const { ShoppingCart, X, ChevronDown, Plus, Minus, Coffee, Soup, Utensils, CakeSlice, IceCream, Search, Copy, FileText, Trash2, Check, Bell, User, ChefHat, RefreshCw, List, Lock, LogOut, Edit3, Save, AlertCircle, Info, PlusCircle, DollarSign } = Icons;
+        const { ShoppingCart, X, ChevronDown, Plus, Minus, Coffee, Soup, Utensils, CakeSlice, IceCream, Search, Copy, FileText, Trash2, Check, Bell, User, ChefHat, RefreshCw, List, Lock, LogOut, Edit3, Save, AlertCircle, Info, PlusCircle, DollarSign, Wifi } = Icons;
 
         // --- Init ---
         let firebaseConfig = manualFirebaseConfig;
@@ -201,6 +202,7 @@
             const [customerName, setCustomerName] = useState(localStorage.getItem('popo_name') || "");
             const [toasts, setToasts] = useState([]);
             const [orders, setOrders] = useState([]);
+            const [dbCollectionPath, setDbCollectionPath] = useState("");
             
             // --- Permission Error State ---
             const [permissionError, setPermissionError] = useState(false);
@@ -212,12 +214,6 @@
             };
             const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
 
-            // Dynamic Collection Path logic for Local/Preview
-            let collectionRef = null;
-            // If running locally (no __firebase_config), use root 'orders'. 
-            // If preview, use deep path.
-            const collName = isLocalEnv ? 'orders' : `artifacts/${appId}/public/data/orders`;
-
             useEffect(() => {
                 const init = async () => {
                     try {
@@ -228,35 +224,37 @@
                         }
                     } catch (err) {
                         console.error("Login Failed:", err);
-                        addToast(`登入失敗: ${err.message}`, 'error');
+                        // Do NOT block DB listener even if login fails, to support open rules
+                        // addToast(`登入失敗: ${err.message}`, 'error'); 
                     }
                 };
                 init();
                 
-                const unsub = onAuthStateChanged(auth, (u) => {
+                const unsubAuth = onAuthStateChanged(auth, (u) => {
                     setUser(u);
-                    if (u) {
-                        // Use a simple collection if manual config (local), or deep path if preview
-                        const path = isLocalEnv ? 'orders' : `artifacts/${appId}/public/data/orders`;
-                        // Split path for collection function
-                        const pathParts = path.split('/');
-                        // Handle dynamic path arguments
-                        let q;
-                        if(pathParts.length === 1) q = collection(db, pathParts[0]);
-                        else q = collection(db, pathParts[0], ...pathParts.slice(1));
+                });
 
-                        onSnapshot(q, (snapshot) => {
-                            setOrders(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-                            setPermissionError(false); // Clear error on success
-                        }, (err) => {
-                            console.error("DB Error:", err);
-                            if(err.code === 'permission-denied') {
-                                setPermissionError(true);
-                            }
-                        });
+                // --- Setup DB Listener INDEPENDENTLY of Auth ---
+                // This allows receiving orders even if anonymous auth fails (assuming open rules)
+                const path = isLocalEnv ? 'orders' : `artifacts/${appId}/public/data/orders`;
+                setDbCollectionPath(path);
+                
+                const pathParts = path.split('/');
+                let q;
+                if(pathParts.length === 1) q = collection(db, pathParts[0]);
+                else q = collection(db, pathParts[0], ...pathParts.slice(1));
+
+                const unsubDB = onSnapshot(q, (snapshot) => {
+                    setOrders(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+                    setPermissionError(false); 
+                }, (err) => {
+                    console.error("DB Error:", err);
+                    if(err.code === 'permission-denied') {
+                        setPermissionError(true);
                     }
                 });
-                return () => unsub();
+
+                return () => { unsubAuth(); unsubDB(); };
             }, []);
 
             useEffect(() => { localStorage.setItem('popo_cart', JSON.stringify(cart)); }, [cart]);
@@ -270,7 +268,7 @@
             const cartTotal = cart.reduce((total, item) => total + item.finalPrice, 0);
 
             return (
-                <MenuContext.Provider value={{ user, cart, setCart, selectedCategory, setSelectedCategory, isCartOpen, setIsCartOpen, isAdminView, setIsAdminView, isAdminLoggedIn, setIsAdminLoggedIn, customerName, setCustomerName, toasts, addToast, removeToast, orders, db, addToCart, removeFromCart, clearCart, loginAdmin, logoutAdmin, cartTotal, beverages: BEVERAGES_DATA, basicSideDrinks: BASIC_SIDE_DRINKS, modifierOptions: MODIFIER_OPTIONS, products: PRODUCTS_DATA, appId, permissionError, isLocalEnv }}>
+                <MenuContext.Provider value={{ user, cart, setCart, selectedCategory, setSelectedCategory, isCartOpen, setIsCartOpen, isAdminView, setIsAdminView, isAdminLoggedIn, setIsAdminLoggedIn, customerName, setCustomerName, toasts, addToast, removeToast, orders, db, addToCart, removeFromCart, clearCart, loginAdmin, logoutAdmin, cartTotal, beverages: BEVERAGES_DATA, basicSideDrinks: BASIC_SIDE_DRINKS, modifierOptions: MODIFIER_OPTIONS, products: PRODUCTS_DATA, appId, permissionError, isLocalEnv, dbCollectionPath }}>
                     {children}
                 </MenuContext.Provider>
             );
@@ -294,7 +292,7 @@
 
         // --- Permission Error Modal ---
         const PermissionModal = () => {
-            const { permissionError } = useContext(MenuContext);
+            const { permissionError, isLocalEnv } = useContext(MenuContext);
             const portalTarget = document.getElementById('modal-portal');
             if (!permissionError || !portalTarget) return null;
             
@@ -312,34 +310,23 @@ service cloud.firestore {
                     <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border-4 border-red-500 relative overflow-hidden">
                         <div className="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
                         <h2 className="text-2xl font-black text-red-600 mb-4 flex items-center"><AlertCircle className="mr-2"/> 資料庫權限不足</h2>
-                        <p className="text-gray-700 font-bold mb-2">無法讀取或寫入訂單。這是因為 Firebase 安全規則預設為鎖定。</p>
-                        <p className="text-gray-600 text-sm mb-4">請前往 Firebase Console &gt; Firestore Database &gt; Rules，將規則修改為：</p>
+                        <p className="text-gray-700 font-bold mb-2">後台無法讀取訂單。</p>
+                        <p className="text-gray-600 text-sm mb-4">這通常是因為 Firebase 規則被鎖定，請將規則修改為 <code>allow read, write: if true;</code></p>
                         
                         <div className="bg-gray-800 text-gray-100 p-4 rounded-xl font-mono text-xs overflow-x-auto mb-4 relative group">
                             <pre>{rulesSnippet}</pre>
                             <button onClick={() => navigator.clipboard.writeText(rulesSnippet)} className="absolute top-2 right-2 bg-white/20 hover:bg-white/40 p-1 rounded text-white"><Copy size={14}/></button>
                         </div>
                         
-                        <p className="text-xs text-gray-400 text-center">修改後請重新整理此頁面。</p>
+                        <div className="text-xs text-amber-600 font-bold bg-amber-50 p-2 rounded">
+                             * 若您正在使用 Github Pages，請確保在兩個裝置上都重新整理網頁，並確認 Firebase Console 的規則已發布。
+                        </div>
                     </div>
                 </div>, portalTarget
             );
         };
 
-        const SuccessModal = ({ message, onClose }) => {
-             const portalTarget = document.getElementById('modal-portal');
-             if(!portalTarget) return null;
-             return createPortal(
-                <div className="fixed inset-0 bg-black/60 z-[10001] flex items-center justify-center p-4 animate-fade-in">
-                    <div className="bg-white rounded-2xl p-8 max-w-sm text-center shadow-2xl">
-                        <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4"><Check size={40} className="text-green-600"/></div>
-                        <h3 className="text-2xl font-black text-gray-800 mb-2">成功！</h3>
-                        <p className="text-gray-600 font-bold mb-6">{message}</p>
-                        <button onClick={onClose} className="w-full bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700">確定</button>
-                    </div>
-                </div>, portalTarget
-             );
-        };
+        // ... SuccessModal removed as requested (violent submit) ...
 
         const CategoryNav = () => {
             const { selectedCategory, setSelectedCategory } = useContext(MenuContext);
@@ -568,7 +555,6 @@ service cloud.firestore {
         };
 
         const CartSidebar = ({ user, cart, isCartOpen, setIsCartOpen, removeFromCart, clearCart, cartTotal, customerName, setCustomerName, db, appId, addToast, isLocalEnv, permissionError }) => {
-            // 移除 isSubmitting 狀態，不再需要等待
             const [nameError, setNameError] = useState(false);
 
             if (!isCartOpen) return null;
@@ -577,8 +563,7 @@ service cloud.firestore {
                 // 1. 基本檢查：只檢查是否有填寫名稱
                 if (!customerName.trim()) { setNameError(true); addToast('請填寫名稱', 'error'); return; }
                 
-                // 2. 背景送出資料 (Fire and Forget - 不等待結果，不檢查成功與否)
-                // 這樣做最暴力，點擊後 UI 瞬間反應，背景默默傳輸
+                // 2. 背景送出資料 (Fire and Forget)
                 const path = isLocalEnv ? 'orders' : `artifacts/${appId}/public/data/orders`;
                 const pathParts = path.split('/');
                 let collRef;
@@ -587,7 +572,11 @@ service cloud.firestore {
 
                 addDoc(collRef, { 
                     userName: customerName, items: cart, totalAmount: cartTotal, userId: user?.uid || 'anon', createdAt: Date.now() 
-                }).catch(e => console.error("背景上傳錯誤 (忽略):", e));
+                }).catch(e => {
+                    console.error("背景上傳錯誤:", e);
+                    // 這裡我們不跳 Alert 阻止流程，因為使用者想要「暴力送出」的感覺
+                    // 但如果失敗，這個 console error 可以幫助開發者除錯
+                });
 
                 // 3. 直接執行成功後的動作：跳提醒 -> 清空 -> 關閉
                 alert('訂單已送出！');
@@ -618,7 +607,7 @@ service cloud.firestore {
                         <div className="p-6 border-t bg-white shadow-lg space-y-4">
                             <div>
                                 <p className="font-bold text-gray-700 mb-2 text-sm">請輸入使用者名稱:</p>
-                                <input className={`w-full p-3 border-2 rounded-xl font-bold text-lg outline-none transition-all ${nameError ? 'border-red-500 bg-red-50 animate-shake' : 'focus:border-amber-500'}`} placeholder={nameError ? "請填寫名稱!" : "例如: 王小明"} value={customerName} onChange={e => {setCustomerName(e.target.value); if(e.target.value) setNameError(false)}} />
+                                <input className={`w-full p-3 border-2 rounded-xl font-bold text-lg outline-none transition-all ${nameError ? 'border-red-500 bg-red-50 animate-shake' : 'focus:border-amber-500'}`} placeholder={nameError ? "請填寫名稱!" : "例如: 王小明 / 桌號 5"} value={customerName} onChange={e => {setCustomerName(e.target.value); if(e.target.value) setNameError(false)}} />
                             </div>
                             <div className="flex justify-between items-end border-b pb-2">
                                 <span className="text-gray-500 font-bold">總金額</span>
@@ -634,7 +623,7 @@ service cloud.firestore {
         };
 
         const App = () => {
-            const { user, isAdminView, isAdminLoggedIn, setIsAdminView, cart, isCartOpen, setIsCartOpen, selectedCategory, setSelectedCategory, products, beverages, addToCart, removeFromCart, clearCart, customerName, setCustomerName, addToast, orders, db, cartTotal, loginAdmin, logoutAdmin, modifierOptions, basicSideDrinks, appId, permissionError, isLocalEnv } = useContext(MenuContext);
+            const { user, isAdminView, isAdminLoggedIn, setIsAdminView, cart, isCartOpen, setIsCartOpen, selectedCategory, setSelectedCategory, products, beverages, addToCart, removeFromCart, clearCart, customerName, setCustomerName, addToast, orders, db, cartTotal, loginAdmin, logoutAdmin, modifierOptions, basicSideDrinks, appId, permissionError, isLocalEnv, dbCollectionPath } = useContext(MenuContext);
             const [modalProduct, setModalProduct] = useState(null);
             const [adminEditingItem, setAdminEditingItem] = useState(null);
             const [showLoginModalLocal, setShowLoginModalLocal] = useState(false);
@@ -711,34 +700,45 @@ service cloud.firestore {
                                 <h2 className="text-2xl font-black text-gray-800 flex items-center mr-4"><ChefHat className="mr-2"/> 訂單管理系統</h2>
                                 <div className="text-xl font-bold text-amber-600 flex items-center"><DollarSign className="mr-1"/>{orders.reduce((a,b)=>a+Number(b.totalAmount),0)}</div>
                                 {/* Status Indicator */}
-                                <div className={`ml-4 flex items-center text-xs font-bold px-2 py-1 rounded ${permissionError ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                <div className={`ml-4 flex items-center text-xs font-bold px-2 py-1 rounded transition-colors ${permissionError ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
                                     <div className={`w-2 h-2 rounded-full mr-2 ${permissionError ? 'bg-red-500' : 'bg-green-500'}`}></div>
-                                    {permissionError ? '權限錯誤' : '連線正常'}
+                                    {permissionError ? '權限錯誤 (無法讀取)' : '連線正常 (接收中)'}
                                 </div>
                             </div>
                             <button onClick={copyAllOrders} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold shadow-md transition flex items-center"><Copy size={18} className="mr-2"/> 匯出訂單</button>
                         </div>
                         
-                        <div className="text-xs text-gray-400 mb-4">版本時間: {new Date().toLocaleTimeString()} (單機優化版)</div>
-
-                        <div className="grid gap-6 md:grid-cols-2">
-                            {mergedOrders.map((order, i) => (
-                                <div key={i} className="bg-white rounded-2xl shadow-sm border-l-8 border-amber-500 p-4">
-                                    <div className="flex justify-between border-b pb-2 mb-2">
-                                        <div><h3 className="font-bold text-lg">{order.userName}</h3><p className="text-xs text-gray-500">{new Date(order.latest).toLocaleTimeString()}</p></div>
-                                        <div className="flex items-center space-x-2"><span className="font-black text-xl">${order.totalAmount}</span><button onClick={() => deleteMerged(order.docIds)} className="text-red-400 hover:bg-red-50 p-1 rounded"><Trash2 size={18}/></button></div>
-                                    </div>
-                                    <ul className="space-y-2">
-                                        {order.items.map((item, idx) => (
-                                            <li key={idx} className="flex justify-between items-center text-sm">
-                                                <span>{item.name} <span className="text-gray-400 text-xs">{item.details}</span></span>
-                                                <div className="flex items-center"><span className="font-bold mr-2">${item.finalPrice}</span>{item.productId && <button onClick={() => setAdminEditingItem(item)} className="text-blue-400"><Edit3 size={14}/></button>}</div>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            ))}
+                        <div className="text-xs text-gray-400 mb-4 bg-gray-50 p-2 rounded border border-gray-100 flex justify-between items-center">
+                            <span>資料庫路徑: {dbCollectionPath}</span>
+                            <span>更新時間: {new Date().toLocaleTimeString()}</span>
                         </div>
+
+                        {mergedOrders.length === 0 ? (
+                            <div className="text-center py-20 text-gray-400">
+                                <Wifi size={48} className="mx-auto mb-4 opacity-50"/>
+                                <p className="font-bold text-lg">目前沒有待處理的訂單</p>
+                                <p className="text-sm mt-2">若客戶已下單但此處未顯示，請檢查 Firebase 規則是否為 <code>allow read, write: if true;</code></p>
+                            </div>
+                        ) : (
+                            <div className="grid gap-6 md:grid-cols-2">
+                                {mergedOrders.map((order, i) => (
+                                    <div key={i} className="bg-white rounded-2xl shadow-sm border-l-8 border-amber-500 p-4">
+                                        <div className="flex justify-between border-b pb-2 mb-2">
+                                            <div><h3 className="font-bold text-lg">{order.userName}</h3><p className="text-xs text-gray-500">{new Date(order.latest).toLocaleTimeString()}</p></div>
+                                            <div className="flex items-center space-x-2"><span className="font-black text-xl">${order.totalAmount}</span><button onClick={() => deleteMerged(order.docIds)} className="text-red-400 hover:bg-red-50 p-1 rounded"><Trash2 size={18}/></button></div>
+                                        </div>
+                                        <ul className="space-y-2">
+                                            {order.items.map((item, idx) => (
+                                                <li key={idx} className="flex justify-between items-center text-sm">
+                                                    <span>{item.name} <span className="text-gray-400 text-xs">{item.details}</span></span>
+                                                    <div className="flex items-center"><span className="font-bold mr-2">${item.finalPrice}</span>{item.productId && <button onClick={() => setAdminEditingItem(item)} className="text-blue-400"><Edit3 size={14}/></button>}</div>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 );
             };
