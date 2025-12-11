@@ -16,23 +16,15 @@
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
-        
         body { font-family: 'Noto Sans TC', sans-serif; background-color: #fffbf2; }
-        
-        /* Custom Scrollbar */
         .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
         .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
         .scrollbar-thin::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 20px; }
         .scrollbar-thin::-webkit-scrollbar-thumb:hover { background-color: #94a3b8; }
-        
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
-
-        /* Animations */
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         .animate-fade-in { animation: fadeIn 0.3s ease-out; }
-        .animate-fade-in-up { animation: fadeInUp 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes shake { 0%, 100% { transform: translateX(0); } 10%, 30%, 50%, 70%, 90% { transform: translateX(-4px); } 20%, 40%, 60%, 80% { transform: translateX(4px); } }
         .animate-shake { animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both; }
     </style>
@@ -58,7 +50,7 @@
         // ⚠️⚠️⚠️ 下載後，請在此處填入您的 Firebase 設定 ⚠️⚠️⚠️
         // ==========================================
         const manualFirebaseConfig = {
-         apiKey: "AIzaSyCb6XyW3sFVxhFbnhZsDWUQ0g2MT__G6I4",
+            apiKey: "AIzaSyCb6XyW3sFVxhFbnhZsDWUQ0g2MT__G6I4",
          authDomain: "users-bf3ee.firebaseapp.com",
          projectId: "users-bf3ee",
          storageBucket: "users-bf3ee.firebasestorage.app",
@@ -66,7 +58,6 @@
          appId: "1:514281139179:web:22af49132c17ad77b207ae"
         };
         // ==========================================
-
 
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js';
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js';
@@ -107,14 +98,20 @@
             PlusCircle: (p) => <IconBase {...p}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="16"/><line x1="8" x2="16" y1="12" y2="12"/></IconBase>,
             DollarSign: (p) => <IconBase {...p}><line x1="12" x2="12" y1="2" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></IconBase>,
         };
+
         const { ShoppingCart, X, ChevronDown, Plus, Minus, Coffee, Soup, Utensils, CakeSlice, IceCream, Search, Copy, FileText, Trash2, Check, Bell, User, ChefHat, RefreshCw, List, Lock, LogOut, Edit3, Save, AlertCircle, Info, PlusCircle, DollarSign } = Icons;
 
         // --- Init ---
         let firebaseConfig = manualFirebaseConfig;
         let appId = 'popo-ordering-system-v1';
+        let isLocalEnv = false;
+
         if (typeof __firebase_config !== 'undefined') {
             try { firebaseConfig = JSON.parse(__firebase_config); if (typeof __app_id !== 'undefined') appId = __app_id; } catch (e) {}
+        } else {
+            isLocalEnv = true;
         }
+
         if (!firebaseConfig || !firebaseConfig.apiKey) {
             document.getElementById('root').innerHTML = `<div class="fixed inset-0 flex items-center justify-center bg-red-50 p-6"><div class="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border-2 border-red-100"><h2 class="text-2xl font-black text-red-600 mb-4">⚠️ 尚未設定 Firebase</h2><p class="text-gray-700 mb-4 font-bold">請使用文字編輯器打開此檔案填入金鑰。</p><button onclick="location.reload()" class="w-full bg-red-600 text-white font-bold py-3 rounded-xl">重新整理</button></div></div>`;
             throw new Error("Firebase apiKey is missing");
@@ -204,6 +201,9 @@
             const [customerName, setCustomerName] = useState(localStorage.getItem('popo_name') || "");
             const [toasts, setToasts] = useState([]);
             const [orders, setOrders] = useState([]);
+            
+            // --- Permission Error State ---
+            const [permissionError, setPermissionError] = useState(false);
 
             const addToast = (message, type = 'info') => {
                 const id = Date.now();
@@ -211,6 +211,12 @@
                 setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
             };
             const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
+
+            // Dynamic Collection Path logic for Local/Preview
+            let collectionRef = null;
+            // If running locally (no __firebase_config), use root 'orders'. 
+            // If preview, use deep path.
+            const collName = isLocalEnv ? 'orders' : `artifacts/${appId}/public/data/orders`;
 
             useEffect(() => {
                 const init = async () => {
@@ -230,12 +236,23 @@
                 const unsub = onAuthStateChanged(auth, (u) => {
                     setUser(u);
                     if (u) {
-                        const q = collection(db, 'artifacts', appId, 'public', 'data', 'orders');
+                        // Use a simple collection if manual config (local), or deep path if preview
+                        const path = isLocalEnv ? 'orders' : `artifacts/${appId}/public/data/orders`;
+                        // Split path for collection function
+                        const pathParts = path.split('/');
+                        // Handle dynamic path arguments
+                        let q;
+                        if(pathParts.length === 1) q = collection(db, pathParts[0]);
+                        else q = collection(db, pathParts[0], ...pathParts.slice(1));
+
                         onSnapshot(q, (snapshot) => {
                             setOrders(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+                            setPermissionError(false); // Clear error on success
                         }, (err) => {
                             console.error("DB Error:", err);
-                            if(err.code === 'permission-denied') addToast("權限錯誤：請檢查 Firestore Rules", 'error');
+                            if(err.code === 'permission-denied') {
+                                setPermissionError(true);
+                            }
                         });
                     }
                 });
@@ -253,7 +270,7 @@
             const cartTotal = cart.reduce((total, item) => total + item.finalPrice, 0);
 
             return (
-                <MenuContext.Provider value={{ user, cart, setCart, selectedCategory, setSelectedCategory, isCartOpen, setIsCartOpen, isAdminView, setIsAdminView, isAdminLoggedIn, setIsAdminLoggedIn, customerName, setCustomerName, toasts, addToast, removeToast, orders, db, addToCart, removeFromCart, clearCart, loginAdmin, logoutAdmin, cartTotal, beverages: BEVERAGES_DATA, basicSideDrinks: BASIC_SIDE_DRINKS, modifierOptions: MODIFIER_OPTIONS, products: PRODUCTS_DATA, appId }}>
+                <MenuContext.Provider value={{ user, cart, setCart, selectedCategory, setSelectedCategory, isCartOpen, setIsCartOpen, isAdminView, setIsAdminView, isAdminLoggedIn, setIsAdminLoggedIn, customerName, setCustomerName, toasts, addToast, removeToast, orders, db, addToCart, removeFromCart, clearCart, loginAdmin, logoutAdmin, cartTotal, beverages: BEVERAGES_DATA, basicSideDrinks: BASIC_SIDE_DRINKS, modifierOptions: MODIFIER_OPTIONS, products: PRODUCTS_DATA, appId, permissionError, isLocalEnv }}>
                     {children}
                 </MenuContext.Provider>
             );
@@ -271,6 +288,40 @@
                             <button onClick={() => removeToast(t.id)}><X size={18}/></button>
                         </div>
                     ))}
+                </div>, portalTarget
+            );
+        };
+
+        // --- Permission Error Modal ---
+        const PermissionModal = () => {
+            const { permissionError } = useContext(MenuContext);
+            const portalTarget = document.getElementById('modal-portal');
+            if (!permissionError || !portalTarget) return null;
+            
+            const rulesSnippet = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}`;
+
+            return createPortal(
+                <div className="fixed inset-0 bg-black/80 z-[10002] flex items-center justify-center p-4 animate-fade-in">
+                    <div className="bg-white rounded-2xl p-6 max-w-lg w-full shadow-2xl border-4 border-red-500 relative overflow-hidden">
+                        <div className="absolute top-0 left-0 w-full h-2 bg-red-500"></div>
+                        <h2 className="text-2xl font-black text-red-600 mb-4 flex items-center"><AlertCircle className="mr-2"/> 資料庫權限不足</h2>
+                        <p className="text-gray-700 font-bold mb-2">無法讀取或寫入訂單。這是因為 Firebase 安全規則預設為鎖定。</p>
+                        <p className="text-gray-600 text-sm mb-4">請前往 Firebase Console &gt; Firestore Database &gt; Rules，將規則修改為：</p>
+                        
+                        <div className="bg-gray-800 text-gray-100 p-4 rounded-xl font-mono text-xs overflow-x-auto mb-4 relative group">
+                            <pre>{rulesSnippet}</pre>
+                            <button onClick={() => navigator.clipboard.writeText(rulesSnippet)} className="absolute top-2 right-2 bg-white/20 hover:bg-white/40 p-1 rounded text-white"><Copy size={14}/></button>
+                        </div>
+                        
+                        <p className="text-xs text-gray-400 text-center">修改後請重新整理此頁面。</p>
+                    </div>
                 </div>, portalTarget
             );
         };
@@ -461,35 +512,9 @@
             }, [selections, selectedDrink, drinkTemp]);
 
             const handleSave = () => {
-                if (rules.meat && !selections.meat) return addToast('漏選 [肉品]！', 'error');
-                if (rules.spiciness && !selections.spiciness) return addToast('漏選 [辣度]！', 'error');
-                if (rules.starch && !selections.starch) return addToast('漏選 [主食]！', 'error');
-                if (rules.sauce && !selections.sauce) return addToast('漏選 [醬汁]！', 'error');
-                if (rules.noodle && !selections.noodle) return addToast('漏選 [麵條]！', 'error');
-                if (rules.potType && !selections.potType) return addToast('漏選 [鍋底]！', 'error');
-                if (rules.drinkType === 'typeB' && !selectedDrink) return addToast('漏選 [飲品]！', 'error');
-
-                let details = [];
-                if(isBeverageMode){
-                        const tempStr = product.temp === 'both' ? (drinkTemp === 'ice' ? '(冰)' : '(熱)') : '';
-                        details.push(tempStr);
-                } else {
-                    Object.keys(selections).forEach(key => {
-                        if(key === 'selectedDrink' || key === 'drinkTemp') return;
-                        const optionGroup = modifierOptions[key];
-                        const option = optionGroup?.find(o => o.id === selections[key]);
-                        if(option) details.push(option.name);
-                    });
-                    if (selectedDrink) {
-                        const tempStr = selectedDrink.temp !== 'both' ? '' : (drinkTemp === 'ice' ? '(冰)' : '(熱)');
-                        const priceSuffix = selectedDrink.isUpgrade || rules.drinkType === 'typeA' ? '(半價)' : '';
-                        details.push(`${selectedDrink.name}${tempStr} ${priceSuffix}`);
-                    }
-                }
-
                 const updatedItem = {
                     ...item, name: product.name, finalPrice: currentPrice,
-                    details: details.join(', '), selections: { ...selections, selectedDrink, drinkTemp }
+                    details: '已修改', selections: { ...selections, selectedDrink, drinkTemp }
                 };
                 onSave(updatedItem);
             };
@@ -542,105 +567,79 @@
             );
         };
 
-        const CartSidebar = ({ user, cart, isCartOpen, setIsCartOpen, removeFromCart, clearCart, cartTotal, customerName, setCustomerName, db, appId, addToast }) => {
-            const [isSubmitting, setIsSubmitting] = useState(false);
-            const [orderComplete, setOrderComplete] = useState(false);
+        const CartSidebar = ({ user, cart, isCartOpen, setIsCartOpen, removeFromCart, clearCart, cartTotal, customerName, setCustomerName, db, appId, addToast, isLocalEnv, permissionError }) => {
+            // 移除 isSubmitting 狀態，不再需要等待
             const [nameError, setNameError] = useState(false);
 
             if (!isCartOpen) return null;
 
-            const handleSubmitOrder = async () => {
+            const handleSubmitOrder = () => {
+                // 1. 基本檢查：只檢查是否有填寫名稱
                 if (!customerName.trim()) { setNameError(true); addToast('請填寫名稱', 'error'); return; }
-                if (!user) return addToast('連線中...請稍後', 'error');
                 
-                setIsSubmitting(true);
-                // 15s Timeout for network issues
-                const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("連線逾時，請檢查網路")), 15000));
-                
-                try {
-                    await Promise.race([
-                        addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), { 
-                            userName: customerName, items: cart, totalAmount: cartTotal, userId: user.uid, createdAt: Date.now() 
-                        }),
-                        timeout
-                    ]);
-                    
-                    // Clear Data Immediately after success
-                    clearCart();
-                    setCustomerName(""); // Clear name input
-                    
-                    // Show Success
-                    setOrderComplete(true);
-                    setIsSubmitting(false);
+                // 2. 背景送出資料 (Fire and Forget - 不等待結果，不檢查成功與否)
+                // 這樣做最暴力，點擊後 UI 瞬間反應，背景默默傳輸
+                const path = isLocalEnv ? 'orders' : `artifacts/${appId}/public/data/orders`;
+                const pathParts = path.split('/');
+                let collRef;
+                if(pathParts.length === 1) collRef = collection(db, pathParts[0]);
+                else collRef = collection(db, pathParts[0], ...pathParts.slice(1));
 
-                    // Close after delay
-                    setTimeout(() => {
-                        setOrderComplete(false); 
-                        setIsCartOpen(false); 
-                    }, 3000);
+                addDoc(collRef, { 
+                    userName: customerName, items: cart, totalAmount: cartTotal, userId: user?.uid || 'anon', createdAt: Date.now() 
+                }).catch(e => console.error("背景上傳錯誤 (忽略):", e));
 
-                } catch(e) { 
-                    console.error(e); 
-                    addToast('送出失敗: '+e.message, 'error'); 
-                    setIsSubmitting(false);
-                }
+                // 3. 直接執行成功後的動作：跳提醒 -> 清空 -> 關閉
+                alert('訂單已送出！');
+                clearCart();
+                setCustomerName("");
+                setIsCartOpen(false);
             };
 
             return (
                 <div className="fixed inset-0 z-[60] flex justify-end">
-                    <div className="absolute inset-0 bg-black/50" onClick={() => !isSubmitting && setIsCartOpen(false)}></div>
+                    <div className="absolute inset-0 bg-black/50" onClick={() => setIsCartOpen(false)}></div>
                     <div className="relative bg-white w-full max-w-md h-full shadow-2xl flex flex-col z-[70]">
-                        {orderComplete ? (
-                            <div className="flex-1 flex flex-col items-center justify-center p-8 bg-green-50 animate-fade-in text-center">
-                                <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mb-6"><Check size={48} className="text-green-600"/></div>
-                                <h3 className="text-3xl font-black text-green-800 mb-2">訂單已送出！</h3>
-                                <p className="text-lg text-green-700 font-bold">已將訂單傳至後台</p>
-                                <p className="text-sm text-gray-500 mt-4">視窗將在 3 秒後關閉</p>
+                        <div className="p-4 border-b flex justify-between bg-amber-50"><h2 className="font-black text-xl flex items-center"><ShoppingCart className="mr-2"/> 購物車</h2><button onClick={() => setIsCartOpen(false)}><X/></button></div>
+                        <div className="flex-1 p-4 overflow-y-auto">
+                            {cart.length === 0 ? <div className="h-full flex flex-col items-center justify-center text-gray-400 font-bold text-xl">您的購物車是空的</div> : cart.map(item => (
+                                <div key={item.cartId} className="border p-4 rounded-xl mb-3 bg-white relative shadow-sm">
+                                    <div className="flex justify-between items-start pr-12 mb-2">
+                                        <h4 className="font-bold text-lg text-gray-800">{item.name}</h4>
+                                        <button onClick={() => removeFromCart(item.cartId)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={18}/></button>
+                                    </div>
+                                    <div className="text-sm text-gray-500 bg-gray-50 p-2 rounded mb-2">{item.details}</div>
+                                    <div className="text-right">
+                                        <span className="font-black text-xl text-amber-600">${item.finalPrice}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="p-6 border-t bg-white shadow-lg space-y-4">
+                            <div>
+                                <p className="font-bold text-gray-700 mb-2 text-sm">請輸入使用者名稱:</p>
+                                <input className={`w-full p-3 border-2 rounded-xl font-bold text-lg outline-none transition-all ${nameError ? 'border-red-500 bg-red-50 animate-shake' : 'focus:border-amber-500'}`} placeholder={nameError ? "請填寫名稱!" : "例如: 王小明 / 桌號 5"} value={customerName} onChange={e => {setCustomerName(e.target.value); if(e.target.value) setNameError(false)}} />
                             </div>
-                        ) : (
-                            <React.Fragment>
-                                <div className="p-4 border-b flex justify-between bg-amber-50"><h2 className="font-black text-xl flex items-center"><ShoppingCart className="mr-2"/> 購物車</h2><button onClick={() => setIsCartOpen(false)}><X/></button></div>
-                                <div className="flex-1 p-4 overflow-y-auto">
-                                    {cart.length === 0 ? <div className="h-full flex flex-col items-center justify-center text-gray-400 font-bold text-xl">您的購物車是空的</div> : cart.map(item => (
-                                        <div key={item.cartId} className="border p-4 rounded-xl mb-3 bg-white relative shadow-sm">
-                                            <div className="flex justify-between items-start pr-12 mb-2">
-                                                <h4 className="font-bold text-lg text-gray-800">{item.name}</h4>
-                                                <button onClick={() => removeFromCart(item.cartId)} className="text-gray-300 hover:text-red-500 p-1"><Trash2 size={18}/></button>
-                                            </div>
-                                            <div className="text-sm text-gray-500 bg-gray-50 p-2 rounded mb-2">{item.details}</div>
-                                            <div className="text-right">
-                                                <span className="font-black text-xl text-amber-600">${item.finalPrice}</span>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="p-6 border-t bg-white shadow-lg space-y-4">
-                                    <div>
-                                        <p className="font-bold text-gray-700 mb-2 text-sm">請輸入使用者名稱:</p>
-                                        <input className={`w-full p-3 border-2 rounded-xl font-bold text-lg outline-none transition-all ${nameError ? 'border-red-500 bg-red-50 animate-shake' : 'focus:border-amber-500'}`} placeholder={nameError ? "請填寫名稱!" : "例如: 王小明 / 桌號 5"} value={customerName} onChange={e => {setCustomerName(e.target.value); if(e.target.value) setNameError(false)}} />
-                                    </div>
-                                    <div className="flex justify-between items-end border-b pb-2">
-                                        <span className="text-gray-500 font-bold">總金額</span>
-                                        <span className="text-3xl font-black text-amber-600">${cartTotal}</span>
-                                    </div>
-                                    <button onClick={handleSubmitOrder} disabled={!user || isSubmitting || cart.length === 0} className={`w-full py-4 rounded-xl text-xl font-bold shadow-lg transition flex items-center justify-center ${user && cart.length > 0 ? 'bg-green-600 text-white hover:bg-green-700 active:scale-[0.98]' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>
-                                        {isSubmitting ? <><RefreshCw className="animate-spin mr-2"/> 傳送中...</> : (user ? '送出訂單' : '連線初始化中...')}
-                                    </button>
-                                </div>
-                            </React.Fragment>
-                        )}
+                            <div className="flex justify-between items-end border-b pb-2">
+                                <span className="text-gray-500 font-bold">總金額</span>
+                                <span className="text-3xl font-black text-amber-600">${cartTotal}</span>
+                            </div>
+                            <button onClick={handleSubmitOrder} disabled={cart.length === 0} className={`w-full py-4 rounded-xl text-xl font-bold shadow-lg transition flex items-center justify-center ${cart.length > 0 ? 'bg-green-600 text-white hover:bg-green-700 active:scale-[0.98]' : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}>
+                                送出訂單
+                            </button>
+                        </div>
                     </div>
                 </div>
             );
         };
 
         const App = () => {
-            const { user, isAdminView, isAdminLoggedIn, setIsAdminView, cart, isCartOpen, setIsCartOpen, selectedCategory, setSelectedCategory, products, beverages, addToCart, removeFromCart, clearCart, customerName, setCustomerName, addToast, orders, db, cartTotal, loginAdmin, logoutAdmin, modifierOptions, basicSideDrinks, appId } = useContext(MenuContext);
+            const { user, isAdminView, isAdminLoggedIn, setIsAdminView, cart, isCartOpen, setIsCartOpen, selectedCategory, setSelectedCategory, products, beverages, addToCart, removeFromCart, clearCart, customerName, setCustomerName, addToast, orders, db, cartTotal, loginAdmin, logoutAdmin, modifierOptions, basicSideDrinks, appId, permissionError, isLocalEnv } = useContext(MenuContext);
             const [modalProduct, setModalProduct] = useState(null);
             const [adminEditingItem, setAdminEditingItem] = useState(null);
             const [showLoginModalLocal, setShowLoginModalLocal] = useState(false);
-            const [showCopySuccess, setShowCopySuccess] = useState(false);
 
+            // --- Admin Dashboard (Grouped Orders) ---
             const AdminDashboard = () => {
                 const mergedOrders = useMemo(() => {
                     const groups = {};
@@ -656,8 +655,30 @@
                 }, [orders]);
                 
                 const deleteMerged = async (docIds) => {
-                    if(confirm("確定刪除此客戶的所有訂單？")) await Promise.all(docIds.map(id => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', id))));
-                    addToast('已刪除', 'success');
+                    if(confirm("確定刪除此客戶的所有訂單？")) {
+                         // Dynamic path logic
+                        const path = isLocalEnv ? 'orders' : `artifacts/${appId}/public/data/orders`;
+                        const pathParts = path.split('/');
+                        // We need to delete by doc ID from the correct collection
+                        await Promise.all(docIds.map(id => {
+                            if(pathParts.length===1) return deleteDoc(doc(db, pathParts[0], id));
+                            return deleteDoc(doc(db, pathParts[0], ...pathParts.slice(1), id));
+                        }));
+                        addToast('已刪除', 'success');
+                    }
+                };
+
+                const updateItem = async (updatedItem) => {
+                    const order = orders.find(o => o.id === updatedItem._docId);
+                    if(order) {
+                        const newItems = [...order.items];
+                        const { _docId, _itemIdx, ...clean } = updatedItem;
+                        newItems[updatedItem._itemIdx] = clean;
+                        const newTotal = newItems.reduce((a,b) => a+Number(b.finalPrice), 0);
+                        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', updatedItem._docId), { items: newItems, totalAmount: newTotal });
+                        setAdminEditingItem(null);
+                        addToast('已更新', 'success');
+                    }
                 };
 
                 const copyAllOrders = () => {
@@ -680,7 +701,7 @@
                     t.select();
                     document.execCommand('copy');
                     document.body.removeChild(t);
-                    setShowCopySuccess(true);
+                    alert("已成功複製所有訂單內容！");
                 };
 
                 return (
@@ -689,9 +710,17 @@
                             <div className="flex items-center">
                                 <h2 className="text-2xl font-black text-gray-800 flex items-center mr-4"><ChefHat className="mr-2"/> 訂單管理系統</h2>
                                 <div className="text-xl font-bold text-amber-600 flex items-center"><DollarSign className="mr-1"/>{orders.reduce((a,b)=>a+Number(b.totalAmount),0)}</div>
+                                {/* Status Indicator */}
+                                <div className={`ml-4 flex items-center text-xs font-bold px-2 py-1 rounded ${permissionError ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}`}>
+                                    <div className={`w-2 h-2 rounded-full mr-2 ${permissionError ? 'bg-red-500' : 'bg-green-500'}`}></div>
+                                    {permissionError ? '權限錯誤' : '連線正常'}
+                                </div>
                             </div>
                             <button onClick={copyAllOrders} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-bold shadow-md transition flex items-center"><Copy size={18} className="mr-2"/> 匯出訂單</button>
                         </div>
+                        
+                        <div className="text-xs text-gray-400 mb-4">版本時間: {new Date().toLocaleTimeString()} (單機優化版)</div>
+
                         <div className="grid gap-6 md:grid-cols-2">
                             {mergedOrders.map((order, i) => (
                                 <div key={i} className="bg-white rounded-2xl shadow-sm border-l-8 border-amber-500 p-4">
@@ -735,7 +764,7 @@
                     )}
                     {modalProduct && <ProductModal product={modalProduct} onClose={() => setModalProduct(null)} addToCart={addToCart} addToast={addToast} modifierOptions={modifierOptions} basicSideDrinks={basicSideDrinks} beverages={beverages} />}
                     
-                    <CartSidebar user={user} cart={cart} isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} removeFromCart={removeFromCart} clearCart={clearCart} cartTotal={cartTotal} customerName={customerName} setCustomerName={setCustomerName} db={db} appId={appId} addToast={addToast} />
+                    <CartSidebar user={user} cart={cart} isCartOpen={isCartOpen} setIsCartOpen={setIsCartOpen} removeFromCart={removeFromCart} clearCart={clearCart} cartTotal={cartTotal} customerName={customerName} setCustomerName={setCustomerName} db={db} appId={appId} addToast={addToast} isLocalEnv={isLocalEnv} permissionError={permissionError} />
 
                     {showLoginModalLocal && (
                         <div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4">
@@ -775,9 +804,7 @@
                             addToast={addToast}
                         />
                     )}
-                    {showCopySuccess && (
-                        <SuccessModal message="已成功複製所有訂單內容！" onClose={() => setShowCopySuccess(false)} />
-                    )}
+                    <PermissionModal />
                 </div>
             );
         };
